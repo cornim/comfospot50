@@ -12,6 +12,11 @@ The component is in `components/comfospot/`. Complete ESPHome examples are in
 `examples/`, installation and troubleshooting documentation is in `docs/`, and
 wiring and the controller board design are in `hardware/`.
 
+## Installation
+
+See [`docs/installation.md`](docs/installation.md) for software flashing, board
+power selection, hardware installation, security, and safety instructions.
+
 ## Safety and no warranty
 
 This project is provided "as is", without warranty of any kind, express or
