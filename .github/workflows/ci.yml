@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build tests
+        run: cmake --build build --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Compile Python sources
+        run: python3 -m compileall -q components tests
+
+      - name: Check release boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test ! -e 2025-11-28-DELETE-Zehnder_CSY_ComfoSpot_50_INM_DE_de.pdf
+          if git ls-files -z | grep -zqE '(^|/)(\.esphome|\.venv|node_modules|build)/|(^|/)(secrets\.yaml|.*\.swp)$'; then
+            echo "Generated, private, or secret files are tracked" >&2
+            exit 1
+          fi
+
+          if grep -n -I -E '\(model |/tmp/easyeda2kicad|\$\{WE_3DMODEL_DIR\}' hardware/*.kicad_pcb; then
+            echo "Dangling 3D model paths found" >&2
+            exit 1
+          fi
+
+          if grep -n -I -E '\(property "Datasheet" "https?://' hardware/*.kicad_*; then
+            echo "JLC/LCSC datasheet links found" >&2
+            exit 1
+          fi
+
+          if git ls-files -z | grep -zqiE '\.(pdf|step|stp|wrl)$'; then
+            echo "Manufacturer documents or 3D model files are tracked" >&2
+            exit 1
+          fi

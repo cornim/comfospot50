@@ -1,0 +1,75 @@
+SPDX-FileCopyrightText: 2026 cornim
+SPDX-License-Identifier: CC-BY-SA-4.0
+
+ComfoSpot 50 physical direction trace
+=====================================
+
+Captured from the live node at speed level 2 with a passive ESPHome API log
+monitor. The monitor sent no commands. Timestamps are seconds from monitor
+start and only scan-state changes plus physical key/direction events are
+listed.
+
+The capture included setup activity before the two useful direction actions.
+The useful sequences are:
+
+Intake activation
+-----------------
+
+  8.277  scan LEDs=0x00 filter=0 error=0 auto=0 plus=1 minus=0
+  8.319  Physical key press detected: +
+  8.485  scan LEDs=0x03 filter=0 error=0 auto=0 plus=0 minus=0
+  9.322  scan LEDs=0x03 filter=0 error=0 auto=0 plus=1 minus=0
+  9.362  Physical key press detected: +
+ 15.839  scan LEDs=0x08 filter=0 error=0 auto=0 plus=1 minus=0
+ 16.284  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 16.853  scan LEDs=0x08 filter=0 error=0 auto=0 plus=0 minus=0
+ 17.109  Physical long button press synchronized direction
+ 17.317  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 17.885  scan LEDs=0x08 filter=0 error=0 auto=0 plus=0 minus=0
+ 18.396  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 18.861  scan LEDs=0x03 filter=0 error=0 auto=0 plus=0 minus=0
+ 21.825  scan LEDs=0x08 filter=0 error=0 auto=0 plus=0 minus=0
+ 22.283  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 22.852  scan LEDs=0x08 filter=0 error=0 auto=0 plus=0 minus=0
+ 23.370  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+
+The repeated `0x08`/`0x00` sequence is the intake marker. The initial
+`0x00`/`0x03` changes are display wake/setup activity and are not the marker.
+
+Exhaust activation
+------------------
+
+ 43.341  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=1
+ 43.360  Physical key press detected: -
+ 43.543  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 43.594  scan LEDs=0x03 filter=0 error=0 auto=0 plus=0 minus=0
+ 44.215  scan LEDs=0x03 filter=0 error=0 auto=0 plus=0 minus=1
+ 44.266  Physical key press detected: -
+ 50.851  scan LEDs=0x01 filter=0 error=0 auto=0 plus=0 minus=1
+ 51.307  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=1
+ 51.408  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 51.812  scan LEDs=0x01 filter=0 error=0 auto=0 plus=0 minus=0
+ 52.219  Physical long button press synchronized direction
+ 52.348  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 52.910  scan LEDs=0x01 filter=0 error=0 auto=0 plus=0 minus=0
+ 53.370  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+ 53.822  scan LEDs=0x03 filter=0 error=0 auto=0 plus=0 minus=0
+ 56.838  scan LEDs=0x01 filter=0 error=0 auto=0 plus=0 minus=0
+ 57.311  scan LEDs=0x00 filter=0 error=0 auto=0 minus=0
+ 57.827  scan LEDs=0x01 filter=0 error=0 auto=0 plus=0 minus=0
+ 58.329  scan LEDs=0x00 filter=0 error=0 auto=0 plus=0 minus=0
+
+The repeated `0x01`/`0x00` sequence is the exhaust marker. The marker starts
+about 6.6 seconds after the long press is first detected and is interleaved
+with a return to the normal `0x03` speed display.
+
+Interpretation
+--------------
+
+- Normal speed level 2 display: `0x03`.
+- Intake marker: repeated `0x08` and `0x00` phases.
+- Exhaust marker: repeated `0x01` and `0x00` phases.
+- The controller must not infer direction from a single `0x00 -> 0x01` wake
+  transition; repeated marker cycles are required.
+- The controller-generated direction hold needs to remain active long enough
+  for the delayed marker sequence to begin.

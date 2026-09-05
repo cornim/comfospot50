@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2026 cornim
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Live ESPHome API end-to-end test dependency.
+aioesphomeapi>=45,<46
