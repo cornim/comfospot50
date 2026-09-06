@@ -6,7 +6,7 @@
 # Controls the configured ventilation direction select and fan percentage.
 # =============================================================================
 blueprint:
-  name: Ventilation Control (V / mode / level) v1.3.0
+  name: Ventilation Control (V / mode / level) v1.3.1
   description: >
     Calculates ventilation level V from humidity results,
     picks mode (Exchange/Intake/Exhaust) and final level. Falls back to
@@ -186,13 +186,13 @@ actions:
         co2|float < (l4|float * (co2_threshold_multiplier|float)) %}3{% else %}4{% endif %}
 
       # ----- final decision -----
-      # use CO2/Exchange when level is low OR outside air is too humid
+      # use CO2/Exchange when the humidity level is low or outside air is too humid
       use_co2: "{{ (v|int < 1) or (too_humid | bool) }}"
       calculated_mode: >-
         {% if use_co2 | bool %}Exchange{% elif room_humidity_high | bool %}Exhaust{% else %}Intake{% endif %}
       mode: >-
         {% if (t_o|float < 13) and calculated_mode|trim == 'Intake' %}Exchange{% else %}{{ calculated_mode | trim }}{% endif %}
-      calculated_level: "{{ (co2_level|int) if (use_co2 | bool) else (v|int) }}"
+      calculated_level: "{{ [co2_level|int, v|int] | max }}"
       level: >-
         {{ ([calculated_level|int, 1] | min) if t_o|float < -5 else calculated_level|int }}
       fan_shutdown: "{{ t_o|float < -12 }}"
