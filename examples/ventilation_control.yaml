@@ -6,14 +6,15 @@
 # Controls the configured ventilation direction select and fan percentage.
 # =============================================================================
 blueprint:
-  name: Ventilation Control (V / mode / level) v1.1.2
+  name: Ventilation Control (V / mode / level) v1.3.0
   description: >
-    Calculates ventilation level V from temperature and humidity results,
+    Calculates ventilation level V from humidity results,
     picks mode (Exchange/Intake/Exhaust) and final level. Falls back to
     CO2-driven Exchange when V < 1 or outdoor air is too humid. Exhaust is
-    selected only when indoor humidity is above target and is the main
-    positive contributor to the ventilation score. The temperature/humidity
-    relation is configurable in RH points per temperature point.
+    selected when indoor humidity is above target. Outdoor humidity is adjusted
+    to the indoor temperature before the score is calculated. Intake is not
+    selected below 13 degrees C; the fan is limited to level 1 below -5
+    degrees C and turned off below -12 degrees C.
   domain: automation
   input:
     outdoor_temp:
@@ -24,11 +25,6 @@ blueprint:
       name: Indoor temperature (T_I)
       selector:
         entity: { domain: sensor, device_class: temperature }
-    target_temp:
-      name: Target temperature (T_T) - number or entity
-      description: "Enter a number (e.g. 21) or an entity (e.g. input_number.target_temp)."
-      selector:
-        template:
     outdoor_humidity:
       name: Outdoor relative humidity
       selector:
@@ -42,22 +38,11 @@ blueprint:
       description: "Enter a number (0-1 or 0-100) or an entity."
       selector:
         template:
-    rh_points_per_temp_point:
-      name: RH points per temperature point
-      description: Relative-humidity percentage points equivalent to 1 temperature point.
-      default: 2.5
-      selector:
-        number:
-          min: 0.1
-          max: 100
-          step: 0.1
-          unit_of_measurement: "%RH/point"
-          mode: box
-    temperature_points_per_level:
-      name: Temperature points per fan level
+    humidity_points_per_level:
+      name: Humidity points per fan level
       description: >
-        Total score points required to add one fan level. A value of 4 means
-        a raw score of 4 contributes one fan level.
+        Total relative-humidity percentage points required to add one fan
+        level. A value of 4 means a raw score of 4 contributes one fan level.
       default: 4
       selector:
         number:
@@ -111,8 +96,8 @@ blueprint:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
 
 triggers:
-  # Re-evaluate every 5 minutes (target temp/humidity may be plain numbers,
-  # so we don't rely on state triggers from them).
+  # Re-evaluate every 5 minutes (target humidity may be a plain number, so we
+  # don't rely on a state trigger from it).
   - minutes: /5
     trigger: time_pattern
 
@@ -128,10 +113,8 @@ actions:
       co2_ent: !input co2_sensor
       direction_select_ent: !input direction_select
       ventilation_fan_ent: !input ventilation_fan
-      t_t_in: !input target_temp        # number OR entity id (resolved below)
       h_t_in: !input target_humidity    # number OR entity id (resolved below)
-      rh_points_per_temp_point: !input rh_points_per_temp_point
-      temp_points_per_level: !input temperature_points_per_level
+      humidity_points_per_level: !input humidity_points_per_level
       negative_v_co2_multiplier: !input negative_v_co2_multiplier
       l1: !input co2_limit_1
       l2: !input co2_limit_2
@@ -145,10 +128,6 @@ actions:
       rh_i_raw: "{{ states(rh_i_ent) | float(0) }}"
       co2: "{{ states(co2_ent) | float(0) }}"
 
-      # ----- target temp: accept a raw number, else treat as an entity id -----
-      t_t: >-
-        {{ (t_t_in | float(none)) if (t_t_in | string | float(none) is not none)
-        else (states(t_t_in) | float(0)) }}
       # ----- target humidity: same number-or-entity handling -----
       h_t_raw: >-
         {{ (h_t_in | float(none)) if (h_t_in | string | float(none) is not none)
@@ -163,50 +142,38 @@ actions:
       # (e ** x is used because HA templates have no exp() function)
       es_ti: "{{ 6.112 * (e ** (17.62 * (t_i|float) / (243.12 + (t_i|float)))) }}"
       es_to: "{{ 6.112 * (e ** (17.62 * (t_o|float) / (243.12 + (t_o|float)))) }}"
-      es_tt: "{{ 6.112 * (e ** (17.62 * (t_t|float) / (243.12 + (t_t|float)))) }}"
 
-      # ----- RH re-expressed at the TARGET temperature (H_IT / H_OT), clamped <=1 -----
-      # ratio es(measured)/es(target) keeps absolute moisture constant
-      h_it_raw: "{{ rh_i|float * es_ti|float / es_tt|float }}"
-      h_ot_raw: "{{ rh_o|float * es_to|float / es_tt|float }}"
-      h_it: "{{ h_it_raw|float if h_it_raw|float < 1 else 1.0 }}"
-      h_ot: "{{ h_ot_raw|float if h_ot_raw|float < 1 else 1.0 }}"
+      # ----- outdoor RH re-expressed at the indoor temperature, clamped <=1 -----
+      # The ratio es(outdoor)/es(indoor) keeps absolute moisture constant.
+      h_i: "{{ rh_i|float }}"
+      h_o_raw: "{{ rh_o|float * es_to|float / es_ti|float }}"
+      h_o: "{{ h_o_raw|float if h_o_raw|float < 1 else 1.0 }}"
 
-      # ----- temperature and humidity products before square-root scaling -----
-      t_product: "{{ (t_t|float - t_i|float) * (t_o|float - t_i|float) }}"
-      h_product: "{{ (h_t|float - h_it|float) * (h_ot|float - h_it|float) }}"
+      # ----- humidity product before square-root scaling -----
+      h_product: "{{ (h_t|float - h_i|float) * (h_o|float - h_i|float) }}"
 
-      # ----- temperature result T_R and humidity result H_R -----
+      # ----- humidity result H_R -----
       # HA supports sqrt(). Preserve the sign for unfavorable conditions,
       # because a negative product cannot be passed directly to sqrt().
-      t_r: >-
-        {{ (1 if t_product|float >= 0 else -1) *
-           sqrt((t_product|float) | abs) }}
       h_r: >-
         {{ ((1 if h_product|float >= 0 else -1) *
-            sqrt((h_product|float) | abs) * 100 /
-            rh_points_per_temp_point|float) }}
+            sqrt((h_product|float) | abs) * 100) }}
 
       # ----- raw level score -----
-      # Divide the combined score by the configured points-per-level value.
-      v_raw: "{{ (t_r|float + h_r|float) / temp_points_per_level|float }}"
+      # Divide the humidity score by the configured points-per-level value.
+      v_raw: "{{ h_r|float / humidity_points_per_level|float }}"
       # clamp v_raw into [0,4] then floor to an integer level
       v: "{{ (0 if v_raw|float < 0 else (4 if v_raw|float > 4 else v_raw|float)) | int }}"
 
-      # ----- positive driver scores used to choose Exhaust vs Intake -----
-      temp_driver: "{{ [t_r|float, 0] | max }}"
-      humidity_driver: "{{ [h_r|float, 0] | max }}"
-      room_humidity_high: "{{ (h_it|float) > (h_t|float) }}"
-      humidity_is_main_driver: >-
-        {{ (room_humidity_high | bool) and
-           ((humidity_driver | float) > (temp_driver | float)) }}
+      # ----- humidity state used to choose Exhaust vs Intake -----
+      room_humidity_high: "{{ (h_i|float) > (h_t|float) }}"
 
       # ----- outdoor dew point via Magnus (gamma is the shared sub-term) -----
       # max(...,0.0001) guards against ln(0) when outdoor RH reads 0
       gamma: "{{ ([rh_o|float, 0.0001] | max | log) + 17.62 * (t_o|float) / (243.12 + (t_o|float)) }}"
       dp_out: "{{ (243.12 * gamma|float / (17.62 - gamma|float)) if (17.62 - gamma|float) != 0 else -100 }}"
       # too_humid: outdoor air would add moisture -> forbid intake/expel
-      too_humid: "{{ (dp_out|float > t_i|float) or (dp_out|float > t_t|float) }}"
+      too_humid: "{{ dp_out|float > t_i|float }}"
 
       # ----- CO2-driven level used when we fall back to Exchange -----
       co2_threshold_multiplier: >-
@@ -221,34 +188,47 @@ actions:
       # ----- final decision -----
       # use CO2/Exchange when level is low OR outside air is too humid
       use_co2: "{{ (v|int < 1) or (too_humid | bool) }}"
+      calculated_mode: >-
+        {% if use_co2 | bool %}Exchange{% elif room_humidity_high | bool %}Exhaust{% else %}Intake{% endif %}
       mode: >-
-        {% if use_co2 | bool %}Exchange{% elif humidity_is_main_driver | bool %}Exhaust{% else %}Intake{% endif %}
-      level: "{{ (co2_level|int) if (use_co2 | bool) else (v|int) }}"
+        {% if (t_o|float < 13) and calculated_mode|trim == 'Intake' %}Exchange{% else %}{{ calculated_mode | trim }}{% endif %}
+      calculated_level: "{{ (co2_level|int) if (use_co2 | bool) else (v|int) }}"
+      level: >-
+        {{ ([calculated_level|int, 1] | min) if t_o|float < -5 else calculated_level|int }}
+      fan_shutdown: "{{ t_o|float < -12 }}"
 
       final_mode: "{{ mode | trim }}"
       final_level: "{{ level | int }}"
 
   - if:
       - condition: template
-        value_template: "{{ states(direction_select_ent) != final_mode }}"
+        value_template: "{{ fan_shutdown | bool }}"
     then:
-      - action: select.select_option
-        target:
-          entity_id: "{{ direction_select_ent }}"
-        data:
-          option: "{{ final_mode }}"
-
-  - if:
-      - condition: template
-        value_template: >-
-          {{ (is_state(ventilation_fan_ent, 'off') and
-              (final_level | int != 0)) or
-             ((not is_state(ventilation_fan_ent, 'off')) and
-              (state_attr(ventilation_fan_ent, 'percentage') | float(-1) !=
-               (final_level | int * 25))) }}
-    then:
-      - action: fan.set_percentage
+      - action: fan.turn_off
         target:
           entity_id: "{{ ventilation_fan_ent }}"
-        data:
-          percentage: "{{ final_level | int * 25 }}"
+    else:
+      - if:
+          - condition: template
+            value_template: "{{ states(direction_select_ent) != final_mode }}"
+        then:
+          - action: select.select_option
+            target:
+              entity_id: "{{ direction_select_ent }}"
+            data:
+              option: "{{ final_mode }}"
+
+      - if:
+          - condition: template
+            value_template: >-
+              {{ (is_state(ventilation_fan_ent, 'off') and
+                  (final_level | int != 0)) or
+                 ((not is_state(ventilation_fan_ent, 'off')) and
+                  (state_attr(ventilation_fan_ent, 'percentage') | float(-1) !=
+                   (final_level | int * 25))) }}
+        then:
+          - action: fan.set_percentage
+            target:
+              entity_id: "{{ ventilation_fan_ent }}"
+            data:
+              percentage: "{{ final_level | int * 25 }}"
