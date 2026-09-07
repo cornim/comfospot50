@@ -13,3 +13,12 @@ deployment/.venv/
 /.opencode/
 hardware/*.kicad_prl
 hardware/generated/
+# KiCad local recovery history and fabrication-toolkit preferences.
+hardware/.history/
+hardware/fabrication-toolkit-options.json
+# Locally generated third-party JLCPCB/LCSC libraries and 3D models.
+hardware/libs/
+# Cached EasyEDA/LCSC responses and model downloads.
+.easyeda_cache/
+# Local backups of production output.
+hardware/production/backups/
