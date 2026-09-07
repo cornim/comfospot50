@@ -4256,7 +4256,7 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "JLC:2601-3102"
+		(symbol "jlc:2601-3102"
 			(exclude_from_sim no)
 			(in_bom yes)
 			(on_board yes)
@@ -11221,7 +11221,7 @@
 		)
 	)
 	(symbol
-		(lib_id "JLC:2601-3102")
+		(lib_id "jlc:2601-3102")
 		(at 184.15 19.05 90)
 		(unit 1)
 		(body_style 1)
@@ -11254,7 +11254,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "JLC:CONN-TH_4P-P3.5-2601-3102"
+		(property "Footprint" "jlc:CONN-TH_4P-P3.5-2601-3102"
 			(at 193.04 19.05 0)
 			(hide yes)
 			(show_name no)

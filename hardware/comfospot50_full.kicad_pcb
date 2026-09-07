@@ -934,7 +934,7 @@
 		)
 		(embedded_fonts no)
 	)
-	(footprint "JLC:CONN-TH_4P-P3.5-2601-3102"
+	(footprint "jlc:CONN-TH_4P-P3.5-2601-3102"
 		(layer "F.Cu")
 		(uuid "3af365ce-d023-4aac-89e0-6bfec791e0bb")
 		(at 140.075 95.055 90)
@@ -1278,7 +1278,7 @@
 			(uuid "dbd9abbb-2bca-4be9-863e-f26a4e801d67")
 		)
 		(embedded_fonts no)
-		(model "/c/Users/d90509/OneDrive - d-fine GmbH/workspace/comfospot50/hardware/libs/jlc.3dshapes/CONN-TH_4P-P3.5-2601-3102.wrl"
+		(model "${KIPRJMOD}/hardware/libs/jlc.3dshapes/CONN-TH_4P-P3.5-2601-3102.wrl"
 			(offset
 				(xyz 0 0 0)
 			)
