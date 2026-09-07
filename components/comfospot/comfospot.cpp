@@ -18,6 +18,7 @@ namespace esphome::comfospot {
 static const char *const TAG = "comfospot";
 static constexpr uint32_t FILTER_RUNTIME_PREFERENCE = 0x43465350;
 static constexpr uint32_t FILTER_RUNTIME_SAVE_INTERVAL_MS = 86400000;
+static constexpr uint32_t FILTER_RUNTIME_PUBLISH_INTERVAL_MS = 60000;
 static constexpr uint32_t SECONDS_PER_DAY = 86400;
 
 bool ComfoSpot::pins_ready_() const {
@@ -695,7 +696,7 @@ float ComfoSpot::filter_runtime_days() const {
 void ComfoSpot::process_filter_runtime_() {
   const uint32_t now = millis();
   this->account_filter_runtime_(now);
-  if (now - this->last_runtime_update_ >= 1000) {
+  if (now - this->last_runtime_update_ >= FILTER_RUNTIME_PUBLISH_INTERVAL_MS) {
     this->last_runtime_update_ = now;
     this->publish_runtime_sensor_();
   }

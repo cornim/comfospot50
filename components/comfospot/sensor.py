@@ -13,6 +13,7 @@ CONF_COMFOSPOT_ID = "comfospot_id"
 
 
 CONF_SENSOR_TYPE = "sensor_type"
+FILTER_RUNTIME_UPDATE_INTERVAL_MS = 60000
 ComfoSpotSensor = comfospot_ns.class_("ComfoSpotSensor", cg.PollingComponent, sensor.Sensor)
 CONFIG_SCHEMA = (
     sensor.sensor_schema(ComfoSpotSensor)
@@ -34,4 +35,6 @@ async def to_code(config):
         config[CONF_ID], controller, config[CONF_SENSOR_TYPE] == "filter_runtime"
     )
     await cg.register_component(var, config)
+    if config[CONF_SENSOR_TYPE] == "filter_runtime":
+        cg.add(var.set_update_interval(FILTER_RUNTIME_UPDATE_INTERVAL_MS))
     await sensor.register_sensor(var, config)

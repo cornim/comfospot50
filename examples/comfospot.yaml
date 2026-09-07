@@ -22,6 +22,7 @@ esp32:
   framework:
     type: esp-idf
 logger:
+  level: INFO
   hardware_uart: USB_SERIAL_JTAG
 api:
   encryption:
