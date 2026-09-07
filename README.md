@@ -82,13 +82,14 @@ purchase or sale.
 
 ## ESPHome configuration
 
-The example uses the local component in this repository:
+The example downloads the component from this repository's `main` branch:
 
 ```yaml
 external_components:
   - source:
-      type: local
-      path: ../components
+      type: git
+      url: https://github.com/cornim/comfospot50
+      ref: main
     components: [comfospot]
 ```
 
