@@ -5,7 +5,7 @@
 
 The schematic and PCB in this directory are the project-authored controller
 board design. The board is intended to interface an ESP32-C3 with the existing
-ComfoSpot panel; it is not a replacement for the appliance's safety systems.
+ComfoSpot panel.
 See [`wiring.md`](wiring.md) for the panel connections and electrical interface
 notes.
 

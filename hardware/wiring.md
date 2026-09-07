@@ -20,18 +20,11 @@ in the component and matches `comfospot50_full.kicad_sch`:
 
 All panel LED inputs use inverted logic with pull-ups. The button connections
 use inverted open-drain-style logic. `led_auto` is reported by the diagnostic
-`Automatic Mode LED` binary sensor. GPIO8 is not connected to the panel.
-
-Verify the ComfoSpot panel voltage levels and the electrical interface before
-connecting the ESP32.
+`Automatic Mode LED` binary sensor.
 
 The component is restricted to the ESP32-C3 mapping above. Configure the
 logger as `USB_SERIAL_JTAG` or `USB_CDC`; UART0/TX0 must not drive IO21 because
 IO21 is used as the automatic-mode LED input.
-
-Do not connect ESP32 GPIOs directly to an unknown panel signal without checking
-the voltage and current limits. Use suitable level shifting or isolation where
-required.
 
 ## No warranty and safety
 

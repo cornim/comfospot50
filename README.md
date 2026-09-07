@@ -76,7 +76,7 @@ The controller board design and detailed panel wiring documentation are in
 ## Getting hardware
 
 Detailed instructions for ordering the controller board are in
-[`hardware/how%20to%20order.md`](hardware/how%20to%20order.md). The minimum
+[`hardware/HOW_TO_ORDER.md`](hardware/HOW_TO_ORDER.md). The minimum
 order is five boards, so if you need fewer boards, or if you have additional
 boards to sell, feel free to open an issue in this repository to arrange a
 purchase or sale.
