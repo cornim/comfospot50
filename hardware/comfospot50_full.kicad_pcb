@@ -961,7 +961,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "https://www.lcsc.com/datasheet/C20252913.pdf"
+		(property "Datasheet" ""
 			(at 0 0 90)
 			(layer "F.Fab")
 			(hide yes)
@@ -1278,17 +1278,6 @@
 			(uuid "dbd9abbb-2bca-4be9-863e-f26a4e801d67")
 		)
 		(embedded_fonts no)
-		(model "${KIPRJMOD}/hardware/libs/jlc.3dshapes/CONN-TH_4P-P3.5-2601-3102.wrl"
-			(offset
-				(xyz 0 0 0)
-			)
-			(scale
-				(xyz 1 1 1)
-			)
-			(rotate
-				(xyz 0 0 0)
-			)
-		)
 	)
 	(footprint "JCL:SOT-23-5_L3.0-W1.7-P0.95-LS2.8-BL"
 		(layer "F.Cu")
