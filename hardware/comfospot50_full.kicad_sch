@@ -1869,173 +1869,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "JCL:KF239-5.08-2P"
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(in_pos_files yes)
-			(duplicate_pin_numbers_are_jumpers no)
-			(property "Reference" "CN1"
-				(at 2.5401 -5.08 90)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify right)
-				)
-			)
-			(property "Value" "KF239-5.08-2P"
-				(at 0.0001 -5.08 90)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify right)
-				)
-			)
-			(property "Footprint" "JCL:CONN-TH_KF239-5.08-2P"
-				(at 0 -8.89 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Datasheet" ""
-				(at 0 -11.43 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Description" ""
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Manufacturer" "KEFA(科发)"
-				(at 0 -13.97 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "MPN" "KF239-5.08-2P"
-				(at 0 -16.51 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "LCSC Part" "C976701"
-				(at 0 -19.05 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "ki_keywords" "Spring Clamp System Terminal Block"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(symbol "KF239-5.08-2P_0_1"
-				(rectangle
-					(start -1.27 3.81)
-					(end 3.81 -3.81)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type background)
-					)
-				)
-				(circle
-					(center 0 2.54)
-					(radius 0.38)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(pin passive line
-					(at -3.81 1.27 0)
-					(length 2.54)
-					(name "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at -3.81 -1.27 0)
-					(length 2.54)
-					(name "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "JCL:ME6211C33M5G-N"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -4413,6 +4246,160 @@
 						)
 					)
 					(number "6"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
+		(symbol "JLC:2601-3102"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "CN"
+				(at 0 6.35 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "2601-3102"
+				(at 0 -6.35 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" "jlc:CONN-TH_4P-P3.5-2601-3102"
+				(at 0 -8.89 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Datasheet" "https://www.lcsc.com/datasheet/C20252913.pdf"
+				(at 0 -11.43 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Description" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Manufacturer" "WAGO(万可)"
+				(at 0 -13.97 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "MPN" "2601-3102"
+				(at 0 -16.51 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "LCSC Part" "C20252913"
+				(at 0 -19.05 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "2601-3102_0_1"
+				(rectangle
+					(start -1.27 3.81)
+					(end 3.81 -3.81)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(circle
+					(center 0 2.54)
+					(radius 0.38)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(pin unspecified line
+					(at -3.81 1.27 0)
+					(length 2.54)
+					(name "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin unspecified line
+					(at -3.81 -1.27 0)
+					(length 2.54)
+					(name "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -9251,7 +9238,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(in_pos_files yes)
-		(dnp no)
+		(dnp yes)
 		(fields_autoplaced yes)
 		(uuid "0ef91523-ed49-4640-81e5-d016a50080dc")
 		(property "Reference" "CABLE1"
@@ -10782,7 +10769,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(in_pos_files yes)
-		(dnp no)
+		(dnp yes)
 		(fields_autoplaced yes)
 		(uuid "6148dc43-068d-4170-a764-f762b6a4817c")
 		(property "Reference" "PANEL1"
@@ -11234,7 +11221,7 @@
 		)
 	)
 	(symbol
-		(lib_id "JCL:KF239-5.08-2P")
+		(lib_id "JLC:2601-3102")
 		(at 184.15 19.05 90)
 		(unit 1)
 		(body_style 1)
@@ -11244,8 +11231,8 @@
 		(in_pos_files yes)
 		(dnp no)
 		(fields_autoplaced yes)
-		(uuid "85f6ebd5-47f2-424e-94a2-852c8f79f5b4")
-		(property "Reference" "J_PWR_IN1"
+		(uuid "829f80e8-6e7b-45ee-aee7-73784f8ca38a")
+		(property "Reference" "CN1"
 			(at 189.23 16.5099 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11256,7 +11243,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "24V IN"
+		(property "Value" "2601-3102"
 			(at 189.23 19.0499 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11267,7 +11254,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "JCL:CONN-TH_KF239-5.08-2P"
+		(property "Footprint" "JLC:CONN-TH_4P-P3.5-2601-3102"
 			(at 193.04 19.05 0)
 			(hide yes)
 			(show_name no)
@@ -11278,7 +11265,7 @@
 				)
 			)
 		)
-		(property "Datasheet" ""
+		(property "Datasheet" "https://www.lcsc.com/datasheet/C20252913.pdf"
 			(at 195.58 19.05 0)
 			(hide yes)
 			(show_name no)
@@ -11300,7 +11287,7 @@
 				)
 			)
 		)
-		(property "Manufacturer" "KEFA(科发)"
+		(property "Manufacturer" "WAGO(万可)"
 			(at 198.12 19.05 0)
 			(hide yes)
 			(show_name no)
@@ -11311,7 +11298,7 @@
 				)
 			)
 		)
-		(property "MPN" "KF239-5.08-2P"
+		(property "MPN" "2601-3102"
 			(at 200.66 19.05 0)
 			(hide yes)
 			(show_name no)
@@ -11322,7 +11309,7 @@
 				)
 			)
 		)
-		(property "LCSC Part" "C976701"
+		(property "LCSC Part" "C20252913"
 			(at 203.2 19.05 0)
 			(hide yes)
 			(show_name no)
@@ -11333,16 +11320,16 @@
 				)
 			)
 		)
-		(pin "2"
-			(uuid "a4317e26-21a6-425e-8149-cf9106b1698b")
-		)
 		(pin "1"
-			(uuid "328a9065-291a-46d6-b755-beb2d52e9da1")
+			(uuid "f06f6658-f51b-4be2-91d2-eaa68baa7093")
+		)
+		(pin "2"
+			(uuid "5ccc012a-af71-4f1e-99d6-4fa78d07b366")
 		)
 		(instances
 			(project "comfospot50_full"
 				(path "/42398dff-893d-443d-90dd-1065dd7a9422"
-					(reference "J_PWR_IN1")
+					(reference "CN1")
 					(unit 1)
 				)
 			)

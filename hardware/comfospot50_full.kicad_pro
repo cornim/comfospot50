@@ -775,7 +775,7 @@
         "uuid": "42398dff-893d-443d-90dd-1065dd7a9422"
       }
     ],
-    "used_designators": "#PWR1,U1,CABLE1,PANEL1,C1-2,C_3V3_BULK1,C_IN_BULK1",
+    "used_designators": "#PWR1,U1,CABLE1,PANEL1,C1-2,CN1,C_3V3_BULK1,C_IN_BULK1",
     "variants": []
   },
   "sheets": [
