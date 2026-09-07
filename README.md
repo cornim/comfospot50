@@ -43,7 +43,8 @@ respective owners and are used only to identify the compatible product.
 The original idea for this project and the reverse engineering of the ComfoSpot
 50 were done by [lorenzspenger](https://github.com/lorenzspenger) in the
 [`comfospot-50`](https://github.com/lorenzspenger/comfospot-50) project. This
-repository's implementation was built from scratch.
+repository's implementation was built from scratch because the original project
+does not support standby mode.
 
 ## Fan levels
 
