@@ -96,9 +96,9 @@ blueprint:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
 
 triggers:
-  # Re-evaluate every 5 minutes (target humidity may be a plain number, so we
+  # Re-evaluate every 10 minutes (target humidity may be a plain number, so we
   # don't rely on a state trigger from it).
-  - minutes: /5
+  - minutes: /10
     trigger: time_pattern
 
 conditions: []
