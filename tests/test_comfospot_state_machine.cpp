@@ -42,7 +42,7 @@ void advance_to_panel_off(Fixture &f) {
 void wake_active_panel(Fixture &f, uint8_t speed_mask) {
   f.advance(150, 50);  // controller wake press
   f.set_led_mask(speed_mask);
-  f.advance(550, 50);  // allow the wake read and settle interval
+  f.advance(1100, 50);  // stable frame plus first-read and state-transition margins
 }
 
 void confirm_operation_after_display_off(Fixture &f, uint32_t extra_ms = 1100) {
@@ -110,7 +110,7 @@ void test_speed_sequence_uses_fixed_timing_and_final_confirmation() {
   CHECK(!f.plus.driven);
 
   f.set_led_mask(0x01);
-  f.advance(550, 50);  // wake read, settle, and first state-changing press
+  f.advance(1100, 50);  // stable wake read and first state-changing press
   CHECK(f.plus.driven);
   f.advance(150, 50);
   CHECK(!f.plus.driven);
@@ -144,16 +144,16 @@ void test_failed_speed_operation_rolls_back_optimistic_state() {
 
   f.comfospot.request_speed(3);
   advance_to_panel_off(f);
-  f.advance(550, 50);  // wake press
+  f.advance(1050, 50);  // wake press
   f.advance(150, 50);
   f.set_led_mask(0x03);
-  f.advance(550, 50);  // one state-changing press starts
+  f.advance(1100, 50);  // one state-changing press starts
   CHECK(f.comfospot.current_speed() == 3);
   CHECK(sensor.state == 3.0f);
 
   // The panel never changes to the requested target. Let the final
   // confirmation and post-failure panel-off barrier complete.
-  f.advance(9000, 50);
+  f.advance(9300, 50);
   f.set_led_mask(0x00);
   f.advance(1100, 50);
 
@@ -173,6 +173,9 @@ void test_standby_wake_is_not_speed_four() {
 
   f.comfospot.request_speed(0);
   advance_to_panel_off(f);
+  wake_active_panel(f, 0x01);
+  f.advance(150, 50);
+  f.set_led_mask(0x00);
   f.advance(10500, 50);  // speed-0 confirmation plus dark-panel barrier
   CHECK(f.comfospot.current_speed() == 0);
   confirm_operation_after_display_off(f);
@@ -216,7 +219,7 @@ void test_speed_four_to_one_after_panel_blank_uses_minus_and_recovers_actual_spe
   f.set_led_mask(0x0F);  // plain speed-4 display after wake
   f.plus.ever_driven_true = false;
   f.minus.ever_driven_true = false;
-  f.advance(550, 50);
+  f.advance(1100, 50);
 
   CHECK(f.minus.driven);
   CHECK(!f.plus.ever_driven_true);
@@ -243,11 +246,159 @@ void test_unknown_state_is_read_before_speed_change() {
   f.advance(150, 50);
   CHECK(!f.plus.driven);
   f.set_led_mask(0x03);
-  f.advance(550, 50);
+  f.advance(1100, 50);
   CHECK(!f.plus.driven);
   f.advance(9000, 50);
   CHECK(f.comfospot.current_speed() == 2);
   confirm_operation_after_display_off(f);
+}
+
+// Replay measured GPIO durations, not the shorter synthetic blink_marker()
+// used by the direction-only tests. Source: docs/traces/*. Each advance
+// checks that marker phases do not issue additional speed gestures.
+void replay_recorded_marker(Fixture &f, uint8_t marker, uint8_t speed_mask, uint32_t step_ms = 50) {
+  const int plus_presses = f.plus.press_count;
+  const int minus_presses = f.minus.press_count;
+  const std::vector<uint32_t> durations = marker == 0x01
+                                            ? std::vector<uint32_t>{456, 505, 536, 562, 460, 452}
+                                            : std::vector<uint32_t>{455, 562, 502, 521, 509, 470};
+  for (size_t i = 0; i < durations.size(); ++i) {
+    f.set_led_mask(i % 2 == 0 ? marker : 0x00);
+    f.advance(durations[i], step_ms);
+    CHECK(f.plus.press_count == plus_presses);
+    CHECK(f.minus.press_count == minus_presses);
+  }
+  f.set_led_mask(speed_mask);
+}
+
+void test_recorded_markers_do_not_determine_speed_steps() {
+  PreferenceFixture preferences;
+  for (uint8_t marker : {0x01, 0x08}) {
+    for (uint32_t offset : {0, 17, 49}) {
+      for (bool increase : {false, true}) {
+        Fixture f;
+        const int initial_speed = increase ? 2 : 3;
+        const int target_speed = increase ? 3 : 2;
+        f.set_led_mask(increase ? 0x03 : 0x07);
+        f.comfospot.setup();
+        f.comfospot.request_speed(target_speed);
+        advance_to_panel_off(f);
+        f.advance(150, 50);
+        f.advance(offset, 7);
+
+        // The Intake wake trace has a 309 ms normal frame before its marker.
+        if (marker == 0x08) {
+          f.set_led_mask(increase ? 0x03 : 0x07);
+          f.advance(309, 7);
+        }
+        replay_recorded_marker(f, marker, increase ? 0x03 : 0x07, 7);
+        CHECK(f.comfospot.current_speed() == initial_speed);
+        CHECK(f.plus.press_count == 1);  // wake only
+        CHECK(f.minus.press_count == 0);
+        f.advance(1100, 50);
+        CHECK(f.plus.press_count == (increase ? 2 : 1));
+        CHECK(f.minus.press_count == (increase ? 0 : 1));
+        f.advance(150, 50);
+        f.set_led_mask(increase ? 0x07 : 0x03);
+        f.advance(9300, 50);
+        confirm_operation_after_display_off(f);
+        CHECK(f.comfospot.current_speed() == target_speed);
+        CHECK(!f.comfospot.status_has_warning());
+      }
+    }
+  }
+}
+
+void test_marker_cannot_confirm_speed_one_or_standby() {
+  PreferenceFixture preferences;
+  for (int target : {0, 1}) {
+    for (uint8_t marker : {0x01, 0x08}) {
+      Fixture f;
+      const int initial_speed = target + 1;
+      f.set_led_mask(target == 0 ? 0x01 : 0x03);
+      f.comfospot.setup();
+      f.comfospot.request_speed(target);
+      advance_to_panel_off(f);
+      wake_active_panel(f, target == 0 ? 0x01 : 0x03);
+      f.advance(150, 50);
+      // Never show the requested speed steadily. Brief LED1/dark phases
+      // must not latch success, even when they coincide with the target.
+      for (int i = 0; i < 4; ++i)
+        replay_recorded_marker(f, marker, 0x00, 7);
+      confirm_operation_after_display_off(f);
+      CHECK(f.comfospot.status_has_warning());
+      CHECK(f.comfospot.current_speed() == initial_speed);
+      CHECK(f.minus.press_count == 1);
+    }
+  }
+}
+
+void test_genuine_speed_one_confirms_after_exhaust_marker() {
+  PreferenceFixture preferences;
+  Fixture f;
+  f.set_led_mask(0x03);
+  f.comfospot.setup();
+  f.comfospot.request_speed(1);
+  advance_to_panel_off(f);
+  wake_active_panel(f, 0x03);
+  f.advance(150, 50);
+  replay_recorded_marker(f, 0x01, 0x01, 7);
+  f.advance(6500, 50);
+  confirm_operation_after_display_off(f);
+  CHECK(f.comfospot.current_speed() == 1);
+  CHECK(!f.comfospot.status_has_warning());
+}
+
+void test_unknown_wake_waits_for_steady_speed_one() {
+  Fixture f;
+  f.comfospot.setup();
+  f.comfospot.request_speed(2);
+  advance_to_panel_off(f);
+  f.advance(150, 50);
+  replay_recorded_marker(f, 0x01, 0x01, 7);
+  CHECK(!f.comfospot.speed_known());
+  CHECK(f.plus.press_count == 1);
+  f.advance(1100, 50);
+  CHECK(f.plus.press_count == 2);
+  CHECK(f.comfospot.current_speed() == 2);
+}
+
+void test_background_and_physical_sync_ignore_exhaust_blinks() {
+  for (bool physical : {false, true}) {
+    Fixture f;
+    f.set_led_mask(0x07);
+    f.comfospot.setup();
+    esphome::sensor::Sensor sensor;
+    f.comfospot.set_speed_sensor(&sensor);
+    if (physical) {
+      f.minus.external_pressed = true;
+      f.advance(150, 50);
+      f.minus.external_pressed = false;
+      f.advance(100, 50);
+    }
+    replay_recorded_marker(f, 0x01, 0x03, 7);
+    CHECK(f.comfospot.current_speed() == 3);
+    CHECK(sensor.state == 3.0f);
+    f.advance(1100, 50);
+    CHECK(f.comfospot.current_speed() == 2);
+    CHECK(sensor.state == 2.0f);
+  }
+}
+
+void test_physical_standby_acknowledgement_is_not_speed_four() {
+  Fixture f;
+  f.comfospot.setup();
+  f.plus.external_pressed = true;
+  f.advance(150, 50);
+  f.plus.external_pressed = false;
+  f.filter.level = f.error.level = f.auto_mode.level = true;
+  f.set_led_mask(0x0F);
+  f.advance(1189, 7);
+  CHECK(!f.comfospot.speed_known());
+  f.filter.level = f.error.level = f.auto_mode.level = false;
+  f.set_led_mask(0x00);
+  f.advance(1100, 50);
+  CHECK(!f.comfospot.speed_known());
 }
 
 // A mode hold is never released merely because a marker starts. It remains a
@@ -330,12 +481,18 @@ void test_constant_speed_display_clears_stale_exhaust_direction() {
   f.comfospot.request_speed(2);
   f.advance(1050, 50);
   f.advance(150, 50);  // controller wake press
+  f.filter.level = true;
+  f.error.level = true;
+  f.auto_mode.level = true;
   f.set_led_mask(0x0F);
   f.advance(1300, 50);  // standby acknowledgement
+  f.filter.level = false;
+  f.error.level = false;
+  f.auto_mode.level = false;
   f.set_led_mask(0x00);
-  f.advance(550, 50);
+  f.advance(1050, 50);
   f.set_led_mask(0x01);  // normal Speed 1 display
-  f.advance(550, 50);
+  f.advance(1050, 50);
   f.set_led_mask(0x03);  // normal Speed 2 display
   f.advance(9500, 50);  // state confirmation
   f.set_led_mask(0x00);
@@ -423,7 +580,7 @@ void test_waiting_request_keeps_first_and_queues_other_type() {
   CHECK(!f.minus.ever_driven_true);
   f.advance(150, 50);
   f.set_led_mask(0x03);
-  f.advance(550, 50);
+  f.advance(1100, 50);
   f.advance(500, 50);
   CHECK(f.plus.driven);
 
@@ -440,7 +597,7 @@ void test_waiting_request_keeps_first_and_queues_other_type() {
   f.advance(1050, 50);
   f.advance(150, 50);
   f.set_led_mask(0x03);
-  f.advance(550, 50);
+  f.advance(1100, 50);
   CHECK(f.minus.driven);  // queued speed 1, not a replacement direction action
 
   f.advance(150, 50);
@@ -467,7 +624,7 @@ void test_executing_request_is_queued_until_current_operation_finishes() {
   advance_to_panel_off(f);
   f.advance(150, 50);
   f.set_led_mask(0x01);
-  f.advance(550, 50);
+  f.advance(1100, 50);
   f.set_led_mask(0x03);
   f.advance(150, 50);
 
@@ -481,7 +638,7 @@ void test_executing_request_is_queued_until_current_operation_finishes() {
   // wake press; it must not have been executed during the first confirmation.
   f.advance(150, 50);
   f.set_led_mask(0x02);  // deliberately invalid; the wake read must not pass
-  f.advance(550, 50);
+  f.advance(1050, 50);
   CHECK(f.comfospot.current_speed() == 2);
 }
 
@@ -497,7 +654,7 @@ void test_speed_and_direction_pending_slots_coalesce_independently() {
   advance_to_panel_off(f);
   f.advance(150, 50);
   f.set_led_mask(0x03);
-  f.advance(550, 50);
+  f.advance(1100, 50);
   CHECK(f.plus.driven);  // active speed 3 operation
 
   f.comfospot.request_speed(4);
@@ -514,7 +671,7 @@ void test_speed_and_direction_pending_slots_coalesce_independently() {
   f.advance(1050, 50);
   f.advance(150, 50);
   f.set_led_mask(0x07);
-  f.advance(550, 50);
+  f.advance(1100, 50);
   f.advance(500, 50);
   CHECK(f.minus.driven);  // queued Exhaust, not the overwritten Intake
 
@@ -530,7 +687,7 @@ void test_speed_and_direction_pending_slots_coalesce_independently() {
   f.advance(1050, 50);
   f.advance(150, 50);
   f.set_led_mask(0x07);
-  f.advance(550, 50);
+  f.advance(1100, 50);
   CHECK(f.minus.driven);  // speed 2 from speed 3
 
   f.advance(150, 50);
@@ -620,6 +777,12 @@ int main() {
   test_standby_wake_is_not_speed_four();
   test_speed_four_to_one_after_panel_blank_uses_minus_and_recovers_actual_speed();
   test_unknown_state_is_read_before_speed_change();
+  test_recorded_markers_do_not_determine_speed_steps();
+  test_marker_cannot_confirm_speed_one_or_standby();
+  test_genuine_speed_one_confirms_after_exhaust_marker();
+  test_unknown_wake_waits_for_steady_speed_one();
+  test_background_and_physical_sync_ignore_exhaust_blinks();
+  test_physical_standby_acknowledgement_is_not_speed_four();
   test_mode_change_holds_for_eight_seconds_and_confirms_after_six();
   test_led_marker_synchronizes_direction_without_button_duration();
   test_led_marker_synchronizes_direction_with_error_latched();

@@ -42,9 +42,12 @@ struct FakeButtonPin : public esphome::GPIOPin {
   bool driven{false};
   bool ever_driven_true{false};
   int write_count{0};
+  int press_count{0};
 
   bool digital_read() override { return this->external_pressed || this->driven; }
   void digital_write(bool value) override {
+    if (value && !this->driven)
+      this->press_count++;
     this->driven = value;
     this->write_count++;
     if (value)
