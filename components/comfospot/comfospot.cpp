@@ -540,10 +540,12 @@ void ComfoSpot::process_physical_buttons_() {
   const bool plus_changed = this->update_physical_button_(this->physical_plus_, this->plus_pin_->digital_read(), now);
   const bool minus_changed = this->update_physical_button_(this->physical_minus_, this->minus_pin_->digital_read(), now);
 
-  if (plus_changed && this->physical_plus_.stable && (this->active_outputs_ & OUTPUT_PLUS) == 0)
+  if (plus_changed && this->physical_plus_.stable && (this->active_outputs_ & OUTPUT_PLUS) == 0) {
     ESP_LOGD(TAG, "Physical key press detected: +");
-  if (minus_changed && this->physical_minus_.stable && (this->active_outputs_ & OUTPUT_MINUS) == 0)
+  }
+  if (minus_changed && this->physical_minus_.stable && (this->active_outputs_ & OUTPUT_MINUS) == 0) {
     ESP_LOGD(TAG, "Physical key press detected: -");
+  }
 
   if (this->physical_plus_.stable && this->physical_minus_.stable && !this->physical_chord_) {
     this->physical_chord_ = true;
@@ -1309,8 +1311,9 @@ void ComfoSpot::finish_operation_(bool success) {
   }
   if (success)
     this->synchronize_direction_after_command_();
-  if (success && speed_request)
+  if (success && speed_request) {
     ESP_LOGD(TAG, "Speed operation confirmed: %d", this->operation_speed_);
+  }
   if (success && this->request_kind_ == RequestKind::DIRECTION) {
     const char *direction_name = this->requested_direction_ == Direction::INTAKE
                                      ? "Intake"
