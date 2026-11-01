@@ -99,6 +99,11 @@ API access, an OTA password, Wi-Fi credentials, and a non-empty fallback access
 point password supplied through a local `examples/secrets.yaml`. Never commit
 that file or any other deployment secrets.
 
+The example declares the firmware project as `cornim.comfospot50`, version
+`0.9.1`, using `esphome.project`. ESPHome embeds this metadata in the firmware
+and reports it through logs, mDNS, and the native API. This is separate from
+the ESPHome version required to compile the configuration.
+
 ## Building and testing
 
 Build and run the host-side tests with:
