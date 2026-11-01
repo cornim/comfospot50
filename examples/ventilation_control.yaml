@@ -6,7 +6,7 @@
 # Controls the configured ventilation direction select and fan percentage.
 # =============================================================================
 blueprint:
-  name: Ventilation Control (V / mode / level) v1.3.1
+  name: Ventilation Control (V / mode / level) v1.4.3
   description: >
     Calculates ventilation level V from humidity results,
     picks mode (Exchange/Intake/Exhaust) and final level. Falls back to
@@ -14,7 +14,9 @@ blueprint:
     selected when indoor humidity is above target. Outdoor humidity is adjusted
     to the indoor temperature before the score is calculated. Intake is not
     selected below 13 degrees C; the fan is limited to level 1 below -5
-    degrees C and turned off below -12 degrees C.
+    degrees C and turned off below -12 degrees C. An optional second sensor can
+    raise the air-quality level using its own thresholds. An optional switch
+    can cap the fan level while it is on.
   domain: automation
   input:
     outdoor_temp:
@@ -42,8 +44,8 @@ blueprint:
       name: Humidity points per fan level
       description: >
         Total relative-humidity percentage points required to add one fan
-        level. A value of 4 means a raw score of 4 contributes one fan level.
-      default: 4
+        level. For example, a value of 10 requires a raw score of 10 per level.
+      default: 10
       selector:
         number:
           min: 0.1
@@ -51,10 +53,10 @@ blueprint:
           step: 0.1
           mode: box
     negative_v_co2_multiplier:
-      name: Negative V CO2 threshold multiplier (x)
+      name: Negative V air-quality threshold multiplier (x)
       description: >
-        Multiplier for CO2 thresholds when the raw ventilation score is
-        negative. Effective thresholds are limit * (-V_raw * x + 1).
+        Multiplier for CO2 and second-sensor thresholds when the raw ventilation
+        score is negative. Effective thresholds are limit * (-V_raw * x + 1).
       default: 0
       selector:
         number:
@@ -62,10 +64,6 @@ blueprint:
           max: 10
           step: 0.1
           mode: box
-    co2_sensor:
-      name: CO2 sensor
-      selector:
-        entity: { domain: sensor, device_class: carbon_dioxide }
     direction_select:
       name: Ventilation direction select
       selector:
@@ -74,6 +72,10 @@ blueprint:
       name: Ventilation fan
       selector:
         entity: { domain: fan }
+    co2_sensor:
+      name: CO2 sensor
+      selector:
+        entity: { domain: sensor, device_class: carbon_dioxide }
     co2_limit_1:
       name: CO2 limit 1
       default: 500
@@ -81,12 +83,12 @@ blueprint:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
     co2_limit_2:
       name: CO2 limit 2
-      default: 800
+      default: 700
       selector:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
     co2_limit_3:
       name: CO2 limit 3
-      default: 1200
+      default: 1000
       selector:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
     co2_limit_4:
@@ -94,6 +96,55 @@ blueprint:
       default: 1500
       selector:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
+    max_level_switch:
+      name: Optional maximum-level switch
+      description: >
+        When on, limit the calculated fan level to the configured maximum.
+        When off or unset, do not apply this additional cap.
+      default: ""
+      selector:
+        entity:
+          domain:
+            - switch
+            - input_boolean
+    maximum_level:
+      name: Maximum fan level while switch is on
+      default: 4
+      selector:
+        number:
+          min: 0
+          max: 4
+          step: 1
+          mode: box
+    second_sensor:
+      name: Optional second air-quality sensor
+      description: >
+        If set and available with all four limits configured, its level is
+        combined with CO2 using the higher level. If unset, unavailable, or its
+        limits are blank, only CO2 is used. Set limits in this sensor's units.
+      default: ""
+      selector:
+        entity: { domain: sensor }
+    second_sensor_limit_1:
+      name: Second sensor limit 1
+      default: ""
+      selector:
+        number: { min: 0, max: 1000000, mode: box }
+    second_sensor_limit_2:
+      name: Second sensor limit 2
+      default: ""
+      selector:
+        number: { min: 0, max: 1000000, mode: box }
+    second_sensor_limit_3:
+      name: Second sensor limit 3
+      default: ""
+      selector:
+        number: { min: 0, max: 1000000, mode: box }
+    second_sensor_limit_4:
+      name: Second sensor limit 4
+      default: ""
+      selector:
+        number: { min: 0, max: 1000000, mode: box }
 
 triggers:
   # Re-evaluate every 10 minutes (target humidity may be a plain number, so we
@@ -101,26 +152,52 @@ triggers:
   - minutes: /10
     trigger: time_pattern
 
-conditions: []
+variables:
+  # Expose blueprint inputs to the automation-level condition and actions.
+  t_o_ent: !input outdoor_temp
+  t_i_ent: !input indoor_temp
+  rh_o_ent: !input outdoor_humidity
+  rh_i_ent: !input indoor_humidity
+  co2_ent: !input co2_sensor
+  second_sensor_ent: !input second_sensor
+  max_level_switch_ent: !input max_level_switch
+  direction_select_ent: !input direction_select
+  ventilation_fan_ent: !input ventilation_fan
+  h_t_in: !input target_humidity
+  humidity_points_per_level: !input humidity_points_per_level
+  negative_v_co2_multiplier: !input negative_v_co2_multiplier
+  l1: !input co2_limit_1
+  l2: !input co2_limit_2
+  l3: !input co2_limit_3
+  l4: !input co2_limit_4
+  s1: !input second_sensor_limit_1
+  s2: !input second_sensor_limit_2
+  s3: !input second_sensor_limit_3
+  s4: !input second_sensor_limit_4
+  maximum_level: !input maximum_level
+
+conditions:
+  # Do not calculate or control anything while an input is in a failure state.
+  - condition: template
+    value_template: >-
+      {{ has_value(t_o_ent) and
+         (states(t_o_ent) | float(none)) is not none and
+         has_value(t_i_ent) and
+         (states(t_i_ent) | float(none)) is not none and
+         has_value(rh_o_ent) and
+         (states(rh_o_ent) | float(none)) is not none and
+         has_value(rh_i_ent) and
+         (states(rh_i_ent) | float(none)) is not none and
+         has_value(co2_ent) and
+         (states(co2_ent) | float(none)) is not none and
+         has_value(direction_select_ent) and
+         has_value(ventilation_fan_ent) and
+         ((h_t_in | string | float(none)) is not none or
+          (has_value(h_t_in) and
+           (states(h_t_in) | float(none)) is not none)) }}
 
 actions:
   - variables:
-      # ----- bind blueprint inputs to plain variables (no !input inside {{ }}) -----
-      t_o_ent: !input outdoor_temp
-      t_i_ent: !input indoor_temp
-      rh_o_ent: !input outdoor_humidity
-      rh_i_ent: !input indoor_humidity
-      co2_ent: !input co2_sensor
-      direction_select_ent: !input direction_select
-      ventilation_fan_ent: !input ventilation_fan
-      h_t_in: !input target_humidity    # number OR entity id (resolved below)
-      humidity_points_per_level: !input humidity_points_per_level
-      negative_v_co2_multiplier: !input negative_v_co2_multiplier
-      l1: !input co2_limit_1
-      l2: !input co2_limit_2
-      l3: !input co2_limit_3
-      l4: !input co2_limit_4
-
       # ----- read sensor values -----
       t_o: "{{ states(t_o_ent) | float(0) }}"
       t_i: "{{ states(t_i_ent) | float(0) }}"
@@ -175,15 +252,34 @@ actions:
       # too_humid: outdoor air would add moisture -> forbid intake/expel
       too_humid: "{{ dp_out|float > t_i|float }}"
 
-      # ----- CO2-driven level used when we fall back to Exchange -----
-      co2_threshold_multiplier: >-
+      # ----- air-quality levels used when we fall back to Exchange -----
+      air_quality_threshold_multiplier: >-
         {{ (((-(v_raw|float)) * (negative_v_co2_multiplier|float)) + 1)
            if v_raw|float < 0 else 1 }}
+      second_sensor_thresholds_valid: >-
+        {{ (s1 | string | trim != '') and
+           (s2 | string | trim != '') and
+           (s3 | string | trim != '') and
+           (s4 | string | trim != '') and
+           (s1 | float(none)) is not none and
+           (s2 | float(none)) is not none and
+           (s3 | float(none)) is not none and
+           (s4 | float(none)) is not none }}
       co2_level: >-
-        {% if co2|float < (l1|float * (co2_threshold_multiplier|float)) %}0{% elif
-        co2|float < (l2|float * (co2_threshold_multiplier|float)) %}1{% elif
-        co2|float < (l3|float * (co2_threshold_multiplier|float)) %}2{% elif
-        co2|float < (l4|float * (co2_threshold_multiplier|float)) %}3{% else %}4{% endif %}
+        {% if co2|float < (l1|float * (air_quality_threshold_multiplier|float)) %}0{% elif
+        co2|float < (l2|float * (air_quality_threshold_multiplier|float)) %}1{% elif
+        co2|float < (l3|float * (air_quality_threshold_multiplier|float)) %}2{% elif
+        co2|float < (l4|float * (air_quality_threshold_multiplier|float)) %}3{% else %}4{% endif %}
+      second_sensor_level: >-
+        {% if not (second_sensor_thresholds_valid | bool) or
+              (second_sensor_ent | string | trim == '') or
+              not has_value(second_sensor_ent) or
+              (states(second_sensor_ent) | float(none)) is none %}0{% elif
+        states(second_sensor_ent)|float < (s1|float * (air_quality_threshold_multiplier|float)) %}0{% elif
+        states(second_sensor_ent)|float < (s2|float * (air_quality_threshold_multiplier|float)) %}1{% elif
+        states(second_sensor_ent)|float < (s3|float * (air_quality_threshold_multiplier|float)) %}2{% elif
+        states(second_sensor_ent)|float < (s4|float * (air_quality_threshold_multiplier|float)) %}3{% else %}4{% endif %}
+      air_quality_level: "{{ [co2_level|int, second_sensor_level|int] | max }}"
 
       # ----- final decision -----
       # use CO2/Exchange when the humidity level is low or outside air is too humid
@@ -192,9 +288,13 @@ actions:
         {% if use_co2 | bool %}Exchange{% elif room_humidity_high | bool %}Exhaust{% else %}Intake{% endif %}
       mode: >-
         {% if (t_o|float < 13) and calculated_mode|trim == 'Intake' %}Exchange{% else %}{{ calculated_mode | trim }}{% endif %}
-      calculated_level: "{{ [co2_level|int, v|int] | max }}"
+      calculated_level: "{{ [air_quality_level|int, v|int] | max }}"
+      switch_limited_level: >-
+        {{ [calculated_level|int, maximum_level|int] | min
+           if is_state(max_level_switch_ent, 'on') else calculated_level|int }}
       level: >-
-        {{ ([calculated_level|int, 1] | min) if t_o|float < -5 else calculated_level|int }}
+        {{ ([switch_limited_level|int, 1] | min)
+           if t_o|float < -5 else switch_limited_level|int }}
       fan_shutdown: "{{ t_o|float < -12 }}"
 
       final_mode: "{{ mode | trim }}"

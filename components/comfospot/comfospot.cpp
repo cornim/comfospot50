@@ -264,27 +264,17 @@ void ComfoSpot::update_led_state_(uint32_t now, uint8_t mask) {
     return;
   }
 
-  // Every read is trusted immediately: there is no multi-sample
-  // confirmation here. Background polling is only used for entity sync,
-  // status latches, and direction-marker detection; an incorrect or
-  // transient observation here is not safety-relevant, because an actual
-  // command (request_speed()/request_direction()/reset_filter()) always
-  // independently re-reads and validates the panel itself before acting.
+  // Direction detection needs every raw transition. Speed consumers use
+  // validated_panel_speed_() separately so a marker cannot become speed 1.
   const uint8_t previous_mask = this->observed_led_mask_;
   this->observed_led_mask_ = mask;
   const int current_speed = speed_for_led_mask_(mask);
 
-  // Direction is signalled by a single fan LED alternating with the current
-  // speed display (see the ComfoSpot manual): supply/intake mode (the '+'
-  // button, Zuluftbetrieb) alternates LED4 (mask 0x08), while extract/exhaust
-  // mode ('-', Abluftbetrieb) alternates LED1 (mask 0x01). The marker runs
-  // roughly three cycles over about two seconds before the panel returns to
-  // the normal speed display. Count transitions between the current speed
-  // mask and the marker mask. Requiring at least MARKER_BLINK_MIN_EDGES such
-  // edges within MARKER_BLINK_WINDOW_MS distinguishes a real marker from a
-  // single clean transition to all-off (energy-saving display or standby).
-  // The all-off form is retained for older panel revisions; at speed 1 the
-  // exhaust marker is inherently ambiguous when both phases use LED1.
+  // Live traces show three roughly one-second cycles of a single LED and
+  // all-off, followed by the normal speed display: intake ('+') uses LED4
+  // (0x08), exhaust ('-') uses LED1 (0x01). Accept direct speed/marker
+  // transitions too, but require repeated marker edges within the window
+  // so a single speed-1 wake frame is not enough to infer Exhaust.
   Direction edge_marker = Direction::UNKNOWN;
   const int observed_speed = speed_for_led_mask_(previous_mask);
   if (observed_speed > 0 && mask == 0x08)
@@ -404,6 +394,29 @@ void ComfoSpot::update_status_latches_(uint32_t now, const PanelSample &sample) 
   }
 }
 
+int ComfoSpot::validated_panel_speed_(uint32_t now, const PanelSample &sample) {
+  this->update_led_state_(now, sample.led_mask);
+  // The ~1.2 s all-indicator acknowledgement would otherwise qualify as a
+  // steady speed-4 frame. Keep it out of speed validation altogether.
+  if (this->standby_wake_frame_(sample)) {
+    this->speed_candidate_initialized_ = false;
+    return -1;
+  }
+  if (!this->speed_candidate_initialized_ || sample.led_mask != this->speed_candidate_mask_) {
+    this->speed_candidate_mask_ = sample.led_mask;
+    this->speed_candidate_since_ = now;
+    this->speed_candidate_initialized_ = true;
+  }
+  if (now - this->speed_candidate_since_ < SPEED_DISPLAY_SETTLE_MS)
+    return -1;
+  return speed_for_led_mask_(sample.led_mask);
+}
+
+bool ComfoSpot::stable_panel_dark_(uint32_t now) const {
+  return this->speed_candidate_initialized_ && this->speed_candidate_mask_ == 0 &&
+         now - this->speed_candidate_since_ >= SPEED_DISPLAY_SETTLE_MS;
+}
+
 void ComfoSpot::set_speed_state_(int speed, bool known) {
   const uint32_t now = millis();
   this->account_filter_runtime_(now);
@@ -441,7 +454,7 @@ void ComfoSpot::poll_inputs_() {
   const PanelSample sample = this->read_panel_sample_();
   ESP_LOGV(TAG, "Panel scan: LEDs=0x%02X filter=%d error=%d auto=%d plus=%d minus=%d", sample.led_mask,
            sample.filter, sample.error, sample.auto_mode, sample.plus, sample.minus);
-  this->update_led_state_(now, sample.led_mask);
+  const int validated_speed = this->validated_panel_speed_(now, sample);
   // A standby wake acknowledgement briefly asserts every panel indicator,
   // including the filter, error, and automatic-mode inputs. It is a display
   // frame rather than three real status conditions, so do not latch it.
@@ -458,7 +471,7 @@ void ComfoSpot::poll_inputs_() {
         this->physical_standby_wake_started_at_ = 0;
       }
       if (!(this->physical_standby_wake_pending_ && observed_speed == 4))
-        this->update_speed_from_panel_(observed_speed, false);
+        this->update_speed_from_panel_(validated_speed, false);
     }
     if (this->direction_ == Direction::UNKNOWN && this->detected_direction_valid_) {
       this->direction_ = this->detected_direction_;
@@ -527,10 +540,12 @@ void ComfoSpot::process_physical_buttons_() {
   const bool plus_changed = this->update_physical_button_(this->physical_plus_, this->plus_pin_->digital_read(), now);
   const bool minus_changed = this->update_physical_button_(this->physical_minus_, this->minus_pin_->digital_read(), now);
 
-  if (plus_changed && this->physical_plus_.stable && (this->active_outputs_ & OUTPUT_PLUS) == 0)
+  if (plus_changed && this->physical_plus_.stable && (this->active_outputs_ & OUTPUT_PLUS) == 0) {
     ESP_LOGD(TAG, "Physical key press detected: +");
-  if (minus_changed && this->physical_minus_.stable && (this->active_outputs_ & OUTPUT_MINUS) == 0)
+  }
+  if (minus_changed && this->physical_minus_.stable && (this->active_outputs_ & OUTPUT_MINUS) == 0) {
     ESP_LOGD(TAG, "Physical key press detected: -");
+  }
 
   if (this->physical_plus_.stable && this->physical_minus_.stable && !this->physical_chord_) {
     this->physical_chord_ = true;
@@ -565,6 +580,7 @@ void ComfoSpot::process_physical_buttons_() {
       if (duration <= SHORT_PRESS_MAX_MS) {
         this->physical_speed_sync_pending_ = true;
         this->physical_speed_sync_started_at_ = now;
+        this->speed_candidate_initialized_ = false;
         this->physical_short_button_ = OUTPUT_PLUS;
         this->physical_standby_wake_pending_ = this->physical_plus_.started_with_display_off;
         this->physical_standby_wake_started_at_ = this->physical_standby_wake_pending_ ? now : 0;
@@ -578,6 +594,7 @@ void ComfoSpot::process_physical_buttons_() {
       if (duration <= SHORT_PRESS_MAX_MS) {
         this->physical_speed_sync_pending_ = true;
         this->physical_speed_sync_started_at_ = now;
+        this->speed_candidate_initialized_ = false;
         this->physical_short_button_ = OUTPUT_MINUS;
       }
     }
@@ -595,22 +612,29 @@ void ComfoSpot::process_physical_buttons_() {
   }
 
   if (this->physical_speed_sync_pending_ && now - this->physical_speed_sync_started_at_ >= 250) {
-    this->physical_speed_sync_pending_ = false;
-    const int observed = this->read_speed_();
-    if (this->physical_standby_wake_pending_ && observed == 4) {
-      // Standby wakes with all four fan LEDs lit for roughly 1.5 s. That
+    const PanelSample sample = this->read_panel_sample_();
+    const int observed = this->validated_panel_speed_(now, sample);
+    bool synchronized = false;
+    if (this->standby_wake_frame_(sample)) {
+      // Standby wakes with all four fan LEDs lit for roughly 1.2 s. That
       // frame is an acknowledgement of the wake-up tap, not speed 4.
+      synchronized = true;
       ESP_LOGD(TAG, "Standby wake acknowledged by physical button; waiting for the panel to blank");
     } else if (observed > 0) {
       this->physical_standby_wake_pending_ = false;
       this->update_speed_from_panel_(observed, false);
+      synchronized = true;
       ESP_LOGD(TAG, "Physical button press synchronized speed %d", observed);
     } else if (this->physical_short_button_ == OUTPUT_MINUS && this->speed_known_ && this->current_speed_ == 1 &&
-               this->all_leds_off_() && !this->physical_minus_.started_with_display_off) {
+               this->stable_panel_dark_(now) && !this->physical_minus_.started_with_display_off) {
       this->update_speed_from_panel_(0, true);
+      synchronized = true;
       ESP_LOGD(TAG, "Physical button press synchronized standby");
     }
-    this->physical_short_button_ = OUTPUT_NONE;
+    if (synchronized || now - this->physical_speed_sync_started_at_ >= PANEL_ON_DISPLAY_MS) {
+      this->physical_speed_sync_pending_ = false;
+      this->physical_short_button_ = OUTPUT_NONE;
+    }
   }
 
   if (this->physical_filter_sync_pending_ && now - this->physical_filter_sync_started_at_ >= STATUS_CLEAR_MS) {
@@ -839,9 +863,11 @@ void ComfoSpot::start_request_(RequestKind kind, int speed, Direction direction)
   this->next_action_at_ = 0;
   this->operation_action_started_at_ = 0;
   this->standby_wake_seen_ = false;
+  this->direction_wake_active_seen_ = false;
   this->wake_standby_possible_ = !this->speed_known_ || this->current_speed_ == 0;
   this->operation_observed_speed_ = -1;
   this->operation_target_seen_ = false;
+  this->speed_candidate_initialized_ = false;
   this->detected_direction_valid_ = false;
   this->direction_marker_seen_ = false;
   this->marker_blink_direction_ = Direction::UNKNOWN;
@@ -888,30 +914,23 @@ void ComfoSpot::prepare_speed_steps_(uint32_t now) {
     this->fail_operation_("Panel state is still unknown after wake-up");
     return;
   }
-  if (this->request_kind_ == RequestKind::DIRECTION && this->current_speed_ == 0) {
-    this->fail_operation_("Direction changes require a non-zero fan speed");
+  const int starting_speed = this->operation_start_speed_ >= 0 ? this->operation_start_speed_ : this->current_speed_;
+  this->steps_remaining_ = abs(this->operation_speed_ - starting_speed);
+  this->step_sign_ = this->operation_speed_ > starting_speed ? 1 : -1;
+  if (this->steps_remaining_ == 0) {
+    this->set_speed_state_(this->operation_speed_, true);
+    this->start_post_operation_(true);
     return;
   }
-  if (this->request_kind_ == RequestKind::SPEED) {
-    const int starting_speed = this->operation_start_speed_ >= 0 ? this->operation_start_speed_ : this->current_speed_;
-    this->steps_remaining_ = abs(this->operation_speed_ - starting_speed);
-    this->step_sign_ = this->operation_speed_ > starting_speed ? 1 : -1;
-    if (this->steps_remaining_ == 0) {
-      this->set_speed_state_(this->operation_speed_, true);
-      this->start_post_operation_(true);
-      return;
-    }
-    this->current_speed_ = starting_speed;
+  this->current_speed_ = starting_speed;
   this->operation_ = Operation::SPEED_STEP_WAIT;
   this->next_action_at_ = now;
-    return;
-  }
+}
 
-  if (this->request_kind_ == RequestKind::DIRECTION && this->direction_ == Direction::UNKNOWN) {
-    if (this->requested_direction_ == Direction::EXCHANGE) {
-      this->fail_operation_("Cannot select exchange while panel direction is unknown");
-      return;
-    }
+void ComfoSpot::prepare_direction_hold_(uint32_t now) {
+  if (this->direction_ == Direction::UNKNOWN && this->requested_direction_ == Direction::EXCHANGE) {
+    this->fail_operation_("Cannot select exchange while panel direction is unknown");
+    return;
   }
 
   this->operation_command_pin_ = this->direction_command_pin_();
@@ -933,8 +952,11 @@ void ComfoSpot::prepare_speed_steps_(uint32_t now) {
     return;
   }
   this->operation_action_started_at_ = now;
-  this->operation_ = Operation::MODE_HOLD_WAIT;
-  this->next_action_at_ = now + CONTROL_KEY_INTERVAL_MS;
+  // The direction wake path already waited for the release-to-hold interval.
+  // Adding another interval here would spend the panel's active display window.
+  this->press_(this->operation_command_pin_);
+  this->operation_ = Operation::MODE_HOLD;
+  this->operation_deadline_ = now + CONTROL_LONG_PRESS_MS;
   ESP_LOGD(TAG, "Changing direction to %s", this->requested_direction_ == Direction::INTAKE ? "Intake"
                                                          : this->requested_direction_ == Direction::EXHAUST ? "Exhaust" : "Exchange");
 }
@@ -1068,16 +1090,18 @@ void ComfoSpot::process_operation_() {
     case Operation::SPEED_WAKE_PRESS:
       if (this->deadline_reached_(now, this->operation_deadline_)) {
         this->release_outputs_();
-        this->operation_ = Operation::SPEED_WAKE_WAIT;
+        this->operation_ = this->request_kind_ == RequestKind::DIRECTION ? Operation::DIRECTION_WAKE_WAIT
+                                                                        : Operation::SPEED_WAKE_WAIT;
         this->operation_deadline_ = now + PANEL_ON_DISPLAY_MS;
         this->operation_action_started_at_ = now;
+        this->speed_candidate_initialized_ = false;
       }
       break;
 
     case Operation::SPEED_WAKE_WAIT: {
       const PanelSample sample = this->read_panel_sample_();
       const uint8_t mask = sample.led_mask;
-      const int observed = speed_for_led_mask_(mask);
+      const int observed = this->validated_panel_speed_(now, sample);
       if (this->standby_wake_frame_(sample)) {
         // Only the all-indicator frame is a standby acknowledgement. A plain
         // 0x0F frame is the normal speed-4 display and must remain the
@@ -1087,18 +1111,13 @@ void ComfoSpot::process_operation_() {
       }
       if (this->standby_wake_seen_ && mask == 0x00) {
         this->standby_wake_seen_ = false;
-        if (this->operation_start_speed_ <= 0)
-          this->operation_start_speed_ = 0;
+        this->operation_start_speed_ = 0;
         this->wake_standby_possible_ = false;
         this->speed_known_ = true;
         this->prepare_speed_steps_(now);
         break;
       }
-      if (mask == 0x00 && this->operation_speed_ == 0 && this->operation_start_speed_ > 0) {
-        this->prepare_speed_steps_(now);
-        break;
-      }
-      if (observed > 0 && now - this->operation_action_started_at_ >= WAKE_SETTLE_MS) {
+      if (observed > 0) {
         this->operation_start_speed_ = observed;
         this->operation_observed_speed_ = observed;
         this->wake_standby_possible_ = false;
@@ -1107,6 +1126,34 @@ void ComfoSpot::process_operation_() {
       } else if (this->deadline_reached_(now, this->operation_deadline_)) {
         this->fail_operation_("Panel did not show its state after wake-up");
       }
+      break;
+    }
+
+    case Operation::DIRECTION_WAKE_WAIT: {
+      const PanelSample sample = this->read_panel_sample_();
+      if (this->standby_wake_frame_(sample)) {
+        this->standby_wake_seen_ = true;
+        this->direction_wake_active_seen_ = false;
+      } else if (this->standby_wake_seen_) {
+        if (sample.led_mask == 0x00) {
+          this->fail_operation_("Direction changes require a non-zero fan speed");
+          break;
+        }
+      } else {
+        // A direction gesture needs fresh evidence of active ventilation, not
+        // an exact speed. Both a normal speed frame and an Intake marker show
+        // that the panel is active. Retain this command-local evidence across
+        // marker dark phases, but never publish a marker as a numeric speed.
+        if (speed_for_led_mask_(sample.led_mask) > 0 || sample.led_mask == 0x08)
+          this->direction_wake_active_seen_ = true;
+        if (this->direction_wake_active_seen_ &&
+            now - this->operation_action_started_at_ >= DIRECTION_WAKE_SETTLE_MS) {
+          this->prepare_direction_hold_(now);
+          break;
+        }
+      }
+      if (this->deadline_reached_(now, this->operation_deadline_))
+        this->fail_operation_("Panel did not show an active state after direction wake-up");
       break;
     }
 
@@ -1136,6 +1183,9 @@ void ComfoSpot::process_operation_() {
         if (this->steps_remaining_ == 0) {
           this->operation_ = Operation::SPEED_CONFIRM;
           this->operation_deadline_ = now + STATE_CONFIRM_MS;
+          // Confirmation must use feedback after the final gesture, not a
+          // stable baseline frame collected before the speed changed.
+          this->speed_candidate_initialized_ = false;
         } else {
           this->operation_ = Operation::SPEED_STEP_WAIT;
           this->next_action_at_ = this->operation_action_started_at_ + CONTROL_KEY_INTERVAL_MS;
@@ -1144,11 +1194,13 @@ void ComfoSpot::process_operation_() {
       break;
 
     case Operation::SPEED_CONFIRM: {
-      const uint8_t mask = this->read_led_mask_();
-      const int observed = speed_for_led_mask_(mask);
+      const int observed = this->validated_panel_speed_(now, this->read_panel_sample_());
       if (observed > 0)
         this->operation_observed_speed_ = observed;
-      const bool matched = this->operation_speed_ == 0 ? mask == 0x00 : observed == this->operation_speed_;
+      const bool matched = this->operation_speed_ == 0
+                               ? this->operation_start_speed_ > 0 && this->step_sign_ < 0 &&
+                                     this->stable_panel_dark_(now)
+                               : observed == this->operation_speed_;
       if (matched)
         this->operation_target_seen_ = true;
       if (this->deadline_reached_(now, this->operation_deadline_)) {
@@ -1160,15 +1212,6 @@ void ComfoSpot::process_operation_() {
       }
       break;
     }
-
-    case Operation::MODE_HOLD_WAIT:
-      if (this->deadline_reached_(now, this->next_action_at_)) {
-        this->press_(this->operation_command_pin_);
-        this->operation_ = Operation::MODE_HOLD;
-        this->operation_action_started_at_ = now;
-        this->operation_deadline_ = now + CONTROL_LONG_PRESS_MS;
-      }
-      break;
 
     case Operation::MODE_HOLD:
       if (this->deadline_reached_(now, this->operation_deadline_)) {
@@ -1285,8 +1328,9 @@ void ComfoSpot::finish_operation_(bool success) {
   }
   if (success)
     this->synchronize_direction_after_command_();
-  if (success && speed_request)
+  if (success && speed_request) {
     ESP_LOGD(TAG, "Speed operation confirmed: %d", this->operation_speed_);
+  }
   if (success && this->request_kind_ == RequestKind::DIRECTION) {
     const char *direction_name = this->requested_direction_ == Direction::INTAKE
                                      ? "Intake"

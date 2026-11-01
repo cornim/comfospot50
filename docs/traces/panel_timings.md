@@ -190,3 +190,44 @@ LED mask sequence:
 - Standby wake uses a distinct all-four-LED frame (`0x0F`) lasting about 1.2 s.
 - After a speed change, the active speed display remains lit for about 9.2 s
   before entering Energy-Saving mode.
+
+## Speed-feedback validation
+
+The controller requires a speed LED mask to remain unchanged for **1.000 s**
+before using it as a speed-change wake-up baseline, final speed confirmation,
+or background speed update. This is continuous-frame validation, not a delay
+after a button release followed by a single snapshot.
+
+Across these measurements and `speed2-direction-physical-trace-2026-09-03.txt`,
+marker lit phases span approximately 0.409-0.536 s and dark phases span
+approximately 0.452-0.577 s, with about 0.050 s measurement uncertainty.
+The one-second threshold rejects those phases while fitting within the roughly
+three-second normal-speed intervals between marker bursts. It also rejects
+the 0.309 s initial speed frame before the marker in Measurement 4.
+
+The all-indicator standby acknowledgement is excluded separately: its
+approximately 1.2 s duration would otherwise pass validation as speed 4.
+Standby confirmation requires sustained darkness after a decrement-to-zero
+gesture, not just a dark snapshot during a marker.
+
+These recorded durations are observations, not manufacturer-guaranteed bounds.
+The exact exhaust-mode speed-change wake sequence still needs live verification;
+host regression tests replay the recorded Intake and Exhaust marker phases.
+
+## Direction-command wake-up
+
+Direction commands use a separate wake-up path: a 150 ms wake tap followed by
+a 500 ms release-to-hold interval and the full eight-second direction hold.
+They require fresh command-local evidence of active ventilation, but do not
+need an exact numeric speed. A normal speed frame or direction marker supplies
+that evidence; marker dark phases do not erase it. The all-indicator standby
+acknowledgement is excluded, and a standby or unresponsive panel cannot be
+accepted merely because the cached speed was non-zero.
+
+The numeric speed filter remains unchanged. Applying its one-second wait to
+direction requests and then adding another 500 ms key interval delayed the
+hold release beyond the roughly nine-second recorded display window. The
+separate direction path avoids that timing regression without treating a
+direction marker as speed 1. Direction success still requires marker feedback
+and the final dark-panel barrier; timing tests alone do not prove physical
+mode acceptance.

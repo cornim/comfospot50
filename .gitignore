@@ -8,7 +8,6 @@ __pycache__/
 *.pyc
 *.swp
 deployment/
-deployment/.venv/
 /build/
 /.opencode/
 hardware/*.kicad_prl

@@ -147,10 +147,10 @@ class ComfoSpot final : public Component {
     WAIT_PANEL_OFF,
     SPEED_WAKE_PRESS,
     SPEED_WAKE_WAIT,
+    DIRECTION_WAKE_WAIT,
     SPEED_STEP_PRESS,
     SPEED_STEP_WAIT,
     SPEED_CONFIRM,
-    MODE_HOLD_WAIT,
     MODE_HOLD,
     MODE_CONFIRM,
     POST_OPERATION_OFF,
@@ -168,17 +168,22 @@ class ComfoSpot final : public Component {
   static constexpr uint32_t CONTROL_SHORT_PRESS_MS = 150;
   static constexpr uint32_t CONTROL_KEY_INTERVAL_MS = 500;
   static constexpr uint32_t CONTROL_LONG_PRESS_MS = 8000;
+  static constexpr uint32_t DIRECTION_WAKE_SETTLE_MS = 500;
   static constexpr uint32_t SHORT_PRESS_MAX_MS = 500;
   static constexpr uint32_t DIRECTION_PRESS_MS = CONTROL_LONG_PRESS_MS;
   static constexpr uint32_t PANEL_OFF_BARRIER_MS = 1000;
   static constexpr uint32_t PANEL_ON_DISPLAY_MS = 9000;
   static constexpr uint32_t STATE_CONFIRM_MS = 9000;
   static constexpr uint32_t MODE_CONFIRM_MS = 6000;
-  static constexpr uint32_t WAKE_SETTLE_MS = 500;
+  // Live traces show marker on/off phases of 409-577 ms (50 ms scan
+  // uncertainty), versus normal speed frames lasting seconds. Require a
+  // continuous frame, not merely elapsed time since the wake gesture.
+  static constexpr uint32_t SPEED_DISPLAY_SETTLE_MS = 1000;
   static constexpr uint32_t DIRECTION_MARKER_SETTLE_MS = 1000;
   static constexpr uint32_t FILTER_PRESS_MS = 3000;
-  // Direction marker: LED4 (intake) or LED1 (exhaust) alternates with the
-  // current speed display for roughly three cycles over about two seconds.
+  // Recorded direction marker: LED4 (intake) or LED1 (exhaust) alternates
+  // with all-off for three cycles over about three seconds, followed by the
+  // normal speed display. Direct speed/marker transitions are accepted too.
   // We confirm a marker once at least MARKER_BLINK_MIN_EDGES marker-display
   // transitions are observed within MARKER_BLINK_WINDOW_MS. Requiring more
   // than one edge rejects a single clean transition to all-off
@@ -230,6 +235,8 @@ class ComfoSpot final : public Component {
   bool external_panel_buttons_idle_() const;
   bool physical_activity_pending_() const;
   void update_led_state_(uint32_t now, uint8_t mask);
+  int validated_panel_speed_(uint32_t now, const PanelSample &sample);
+  bool stable_panel_dark_(uint32_t now) const;
   void update_status_latches_(uint32_t now, const PanelSample &sample);
   void update_speed_from_panel_(int speed, bool all_off_is_standby);
   void account_filter_runtime_(uint32_t now);
@@ -256,6 +263,7 @@ class ComfoSpot final : public Component {
   void begin_after_panel_off_();
   void begin_active_request_();
   void prepare_speed_steps_(uint32_t now);
+  void prepare_direction_hold_(uint32_t now);
   void start_post_operation_(bool success, const char *message = nullptr);
   bool panel_off_barrier_reached_(uint32_t now);
   void start_speed_operation_(int speed);
@@ -324,6 +332,7 @@ class ComfoSpot final : public Component {
   uint32_t next_action_at_{0};
   uint32_t operation_action_started_at_{0};
   bool standby_wake_seen_{false};
+  bool direction_wake_active_seen_{false};
   bool wake_standby_possible_{false};
   int operation_observed_speed_{-1};
   bool operation_target_seen_{false};
@@ -357,13 +366,13 @@ class ComfoSpot final : public Component {
   bool physical_direction_sync_pending_{false};
   uint32_t physical_direction_sync_started_at_{0};
 
-  // The most recently read LED mask. Every read is used immediately (no
-  // multi-sample confirmation): a single poll is trusted as the panel's
-  // current display, since a genuine change of interest (an explicitly
-  // requested speed step) is always independently validated and retried by
-  // the operation state machine, not inferred from this value.
+  // Raw LED transitions feed direction detection; speed consumers separately
+  // require speed_candidate_mask_ to remain unchanged for the settle interval.
   uint8_t observed_led_mask_{0};
   bool led_mask_initialized_{false};
+  uint8_t speed_candidate_mask_{0};
+  uint32_t speed_candidate_since_{0};
+  bool speed_candidate_initialized_{false};
   // Fast single-LED marker detector for the direction marker. See
   // update_led_state_() and MARKER_BLINK_* below. marker_blink_direction_ is
   // the marker currently accumulating display<->marker edges
