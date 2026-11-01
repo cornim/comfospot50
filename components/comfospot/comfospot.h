@@ -147,10 +147,10 @@ class ComfoSpot final : public Component {
     WAIT_PANEL_OFF,
     SPEED_WAKE_PRESS,
     SPEED_WAKE_WAIT,
+    DIRECTION_WAKE_WAIT,
     SPEED_STEP_PRESS,
     SPEED_STEP_WAIT,
     SPEED_CONFIRM,
-    MODE_HOLD_WAIT,
     MODE_HOLD,
     MODE_CONFIRM,
     POST_OPERATION_OFF,
@@ -168,6 +168,7 @@ class ComfoSpot final : public Component {
   static constexpr uint32_t CONTROL_SHORT_PRESS_MS = 150;
   static constexpr uint32_t CONTROL_KEY_INTERVAL_MS = 500;
   static constexpr uint32_t CONTROL_LONG_PRESS_MS = 8000;
+  static constexpr uint32_t DIRECTION_WAKE_SETTLE_MS = 500;
   static constexpr uint32_t SHORT_PRESS_MAX_MS = 500;
   static constexpr uint32_t DIRECTION_PRESS_MS = CONTROL_LONG_PRESS_MS;
   static constexpr uint32_t PANEL_OFF_BARRIER_MS = 1000;
@@ -262,6 +263,7 @@ class ComfoSpot final : public Component {
   void begin_after_panel_off_();
   void begin_active_request_();
   void prepare_speed_steps_(uint32_t now);
+  void prepare_direction_hold_(uint32_t now);
   void start_post_operation_(bool success, const char *message = nullptr);
   bool panel_off_barrier_reached_(uint32_t now);
   void start_speed_operation_(int speed);
@@ -330,6 +332,7 @@ class ComfoSpot final : public Component {
   uint32_t next_action_at_{0};
   uint32_t operation_action_started_at_{0};
   bool standby_wake_seen_{false};
+  bool direction_wake_active_seen_{false};
   bool wake_standby_possible_{false};
   int operation_observed_speed_{-1};
   bool operation_target_seen_{false};

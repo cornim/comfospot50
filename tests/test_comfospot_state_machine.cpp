@@ -45,6 +45,12 @@ void wake_active_panel(Fixture &f, uint8_t speed_mask) {
   f.advance(1100, 50);  // stable frame plus first-read and state-transition margins
 }
 
+void wake_direction_panel(Fixture &f, uint8_t speed_mask) {
+  f.advance(150, 50);  // controller wake press
+  f.set_led_mask(speed_mask);
+  f.advance(500, 50);  // release-to-hold interval, independent of speed filtering
+}
+
 void confirm_operation_after_display_off(Fixture &f, uint32_t extra_ms = 1100) {
   f.set_led_mask(0x00);
   f.advance(extra_ms, 50);  // post-operation one-second dark-panel barrier
@@ -401,6 +407,99 @@ void test_physical_standby_acknowledgement_is_not_speed_four() {
   CHECK(!f.comfospot.speed_known());
 }
 
+// Direction wake readiness must not inherit numeric speed filtering or add
+// another key interval after the wake settle interval. Replay a delayed LED
+// response and measure the actual output edges rather than supplying success.
+void test_direction_wake_preserves_gesture_timing() {
+  PreferenceFixture preferences;
+  for (auto direction : {ComfoSpot::Direction::INTAKE, ComfoSpot::Direction::EXHAUST}) {
+    for (uint32_t response_delay : {0, 43, 150}) {
+      Fixture f;
+      f.set_led_mask(0x03);
+      f.comfospot.setup();
+      f.advance(5100, 1);
+      f.set_led_mask(0x00);
+      f.comfospot.request_direction(direction);
+      bool previous_plus = false;
+      bool previous_hold = false;
+      uint32_t wake_release = 0;
+      uint32_t hold_start = 0;
+      uint32_t hold_end = 0;
+      for (int i = 0; i < 12000; ++i) {
+        const uint32_t now = esphome::millis();
+        if (wake_release != 0 && now >= wake_release + response_delay)
+          f.set_led_mask(0x03);
+        f.advance(1, 1);
+        const uint32_t after = esphome::millis();
+        if (previous_plus && !f.plus.driven && wake_release == 0)
+          wake_release = after;
+        const bool held = direction == ComfoSpot::Direction::INTAKE ? f.plus.driven : f.minus.driven;
+        if (wake_release != 0 && !previous_hold && held)
+          hold_start = after;
+        if (hold_start != 0 && previous_hold && !held)
+          hold_end = after;
+        previous_plus = f.plus.driven;
+        previous_hold = held;
+      }
+      CHECK(wake_release != 0);
+      CHECK(hold_start - wake_release == 500);
+      CHECK(hold_end - hold_start == 8000);
+      CHECK(hold_end - (wake_release + response_delay) < 9000);
+      CHECK(f.comfospot.current_speed() == 2);
+      CHECK(f.comfospot.current_direction() == ComfoSpot::Direction::EXCHANGE);
+    }
+  }
+}
+
+void test_direction_wake_requires_fresh_active_evidence() {
+  PreferenceFixture preferences;
+  for (bool standby : {false, true}) {
+    Fixture f;
+    f.set_led_mask(0x03);  // deliberately stale cached active speed
+    f.comfospot.setup();
+    f.comfospot.request_direction(ComfoSpot::Direction::EXHAUST);
+    advance_to_panel_off(f);
+    f.advance(150, 50);
+    if (standby) {
+      f.filter.level = f.error.level = f.auto_mode.level = true;
+      f.set_led_mask(0x0F);
+      f.advance(1189, 7);
+      CHECK(f.minus.press_count == 0);
+      f.filter.level = f.error.level = f.auto_mode.level = false;
+      f.set_led_mask(0x00);
+    }
+    f.advance(10500, 50);
+    CHECK(f.minus.press_count == 0);
+    CHECK(f.plus.press_count == 1);  // wake only
+    CHECK(f.comfospot.status_has_warning());
+  }
+}
+
+void test_direction_wake_marker_does_not_overwrite_speed() {
+  PreferenceFixture preferences;
+  for (uint8_t marker : {0x01, 0x08}) {
+    for (bool dark_phase : {false, true}) {
+      Fixture f;
+      f.set_led_mask(0x03);
+      f.comfospot.setup();
+      f.comfospot.request_direction(ComfoSpot::Direction::EXHAUST);
+      advance_to_panel_off(f);
+      f.advance(150, 50);
+      f.set_led_mask(0x03);
+      f.advance(309, 1);  // measured initial speed frame before an Intake marker
+      f.set_led_mask(marker);
+      f.advance(141, 1);
+      if (dark_phase)
+        f.set_led_mask(0x00);
+      f.advance(50, 1);
+      CHECK(f.minus.driven);
+      CHECK(f.comfospot.current_speed() == 2);
+      CHECK(f.plus.press_count == 1);
+      CHECK(f.minus.press_count == 1);
+    }
+  }
+}
+
 // A mode hold is never released merely because a marker starts. It remains a
 // complete eight-second gesture, then waits six seconds for the marker result.
 void test_mode_change_holds_for_eight_seconds_and_confirms_after_six() {
@@ -411,8 +510,7 @@ void test_mode_change_holds_for_eight_seconds_and_confirms_after_six() {
 
   f.comfospot.request_direction(ComfoSpot::Direction::INTAKE);
   advance_to_panel_off(f);
-  wake_active_panel(f, 0x03);
-  f.advance(500, 50);  // 500 ms between wake and the long gesture
+  wake_direction_panel(f, 0x03);
   CHECK(f.plus.driven);
 
   f.advance(1000, 50);
@@ -530,8 +628,7 @@ void test_exchange_uses_source_mode_marker() {
 
   f.comfospot.request_direction(ComfoSpot::Direction::INTAKE);
   advance_to_panel_off(f);
-  wake_active_panel(f, 0x03);
-  f.advance(500, 50);
+  wake_direction_panel(f, 0x03);
   f.advance(8000, 50);
   f.set_led_mask(0x08);
   f.advance(100, 50);
@@ -550,8 +647,7 @@ void test_exchange_uses_source_mode_marker() {
 
   f.comfospot.request_direction(ComfoSpot::Direction::EXCHANGE);
   advance_to_panel_off(f);
-  wake_active_panel(f, 0x03);
-  f.advance(500, 50);
+  wake_direction_panel(f, 0x03);
   CHECK(f.plus.driven);
   blink_marker(f, 0x08, 0x03);  // source Intake marker
   f.advance(8000, 50);
@@ -578,10 +674,7 @@ void test_waiting_request_keeps_first_and_queues_other_type() {
 
   CHECK(f.plus.driven);  // the first direction request is still active
   CHECK(!f.minus.ever_driven_true);
-  f.advance(150, 50);
-  f.set_led_mask(0x03);
-  f.advance(1100, 50);
-  f.advance(500, 50);
+  wake_direction_panel(f, 0x03);
   CHECK(f.plus.driven);
 
   f.advance(1000, 50);
@@ -669,10 +762,7 @@ void test_speed_and_direction_pending_slots_coalesce_independently() {
   f.advance(1100, 50);  // finish speed 3 and begin queued direction
 
   f.advance(1050, 50);
-  f.advance(150, 50);
-  f.set_led_mask(0x07);
-  f.advance(1100, 50);
-  f.advance(500, 50);
+  wake_direction_panel(f, 0x07);
   CHECK(f.minus.driven);  // queued Exhaust, not the overwritten Intake
 
   f.advance(1000, 50);
@@ -783,6 +873,9 @@ int main() {
   test_unknown_wake_waits_for_steady_speed_one();
   test_background_and_physical_sync_ignore_exhaust_blinks();
   test_physical_standby_acknowledgement_is_not_speed_four();
+  test_direction_wake_preserves_gesture_timing();
+  test_direction_wake_requires_fresh_active_evidence();
+  test_direction_wake_marker_does_not_overwrite_speed();
   test_mode_change_holds_for_eight_seconds_and_confirms_after_six();
   test_led_marker_synchronizes_direction_without_button_duration();
   test_led_marker_synchronizes_direction_with_error_latched();

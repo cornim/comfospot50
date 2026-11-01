@@ -863,6 +863,7 @@ void ComfoSpot::start_request_(RequestKind kind, int speed, Direction direction)
   this->next_action_at_ = 0;
   this->operation_action_started_at_ = 0;
   this->standby_wake_seen_ = false;
+  this->direction_wake_active_seen_ = false;
   this->wake_standby_possible_ = !this->speed_known_ || this->current_speed_ == 0;
   this->operation_observed_speed_ = -1;
   this->operation_target_seen_ = false;
@@ -913,30 +914,23 @@ void ComfoSpot::prepare_speed_steps_(uint32_t now) {
     this->fail_operation_("Panel state is still unknown after wake-up");
     return;
   }
-  if (this->request_kind_ == RequestKind::DIRECTION && this->operation_start_speed_ == 0) {
-    this->fail_operation_("Direction changes require a non-zero fan speed");
+  const int starting_speed = this->operation_start_speed_ >= 0 ? this->operation_start_speed_ : this->current_speed_;
+  this->steps_remaining_ = abs(this->operation_speed_ - starting_speed);
+  this->step_sign_ = this->operation_speed_ > starting_speed ? 1 : -1;
+  if (this->steps_remaining_ == 0) {
+    this->set_speed_state_(this->operation_speed_, true);
+    this->start_post_operation_(true);
     return;
   }
-  if (this->request_kind_ == RequestKind::SPEED) {
-    const int starting_speed = this->operation_start_speed_ >= 0 ? this->operation_start_speed_ : this->current_speed_;
-    this->steps_remaining_ = abs(this->operation_speed_ - starting_speed);
-    this->step_sign_ = this->operation_speed_ > starting_speed ? 1 : -1;
-    if (this->steps_remaining_ == 0) {
-      this->set_speed_state_(this->operation_speed_, true);
-      this->start_post_operation_(true);
-      return;
-    }
-    this->current_speed_ = starting_speed;
+  this->current_speed_ = starting_speed;
   this->operation_ = Operation::SPEED_STEP_WAIT;
   this->next_action_at_ = now;
-    return;
-  }
+}
 
-  if (this->request_kind_ == RequestKind::DIRECTION && this->direction_ == Direction::UNKNOWN) {
-    if (this->requested_direction_ == Direction::EXCHANGE) {
-      this->fail_operation_("Cannot select exchange while panel direction is unknown");
-      return;
-    }
+void ComfoSpot::prepare_direction_hold_(uint32_t now) {
+  if (this->direction_ == Direction::UNKNOWN && this->requested_direction_ == Direction::EXCHANGE) {
+    this->fail_operation_("Cannot select exchange while panel direction is unknown");
+    return;
   }
 
   this->operation_command_pin_ = this->direction_command_pin_();
@@ -958,8 +952,11 @@ void ComfoSpot::prepare_speed_steps_(uint32_t now) {
     return;
   }
   this->operation_action_started_at_ = now;
-  this->operation_ = Operation::MODE_HOLD_WAIT;
-  this->next_action_at_ = now + CONTROL_KEY_INTERVAL_MS;
+  // The direction wake path already waited for the release-to-hold interval.
+  // Adding another interval here would spend the panel's active display window.
+  this->press_(this->operation_command_pin_);
+  this->operation_ = Operation::MODE_HOLD;
+  this->operation_deadline_ = now + CONTROL_LONG_PRESS_MS;
   ESP_LOGD(TAG, "Changing direction to %s", this->requested_direction_ == Direction::INTAKE ? "Intake"
                                                          : this->requested_direction_ == Direction::EXHAUST ? "Exhaust" : "Exchange");
 }
@@ -1093,7 +1090,8 @@ void ComfoSpot::process_operation_() {
     case Operation::SPEED_WAKE_PRESS:
       if (this->deadline_reached_(now, this->operation_deadline_)) {
         this->release_outputs_();
-        this->operation_ = Operation::SPEED_WAKE_WAIT;
+        this->operation_ = this->request_kind_ == RequestKind::DIRECTION ? Operation::DIRECTION_WAKE_WAIT
+                                                                        : Operation::SPEED_WAKE_WAIT;
         this->operation_deadline_ = now + PANEL_ON_DISPLAY_MS;
         this->operation_action_started_at_ = now;
         this->speed_candidate_initialized_ = false;
@@ -1128,6 +1126,34 @@ void ComfoSpot::process_operation_() {
       } else if (this->deadline_reached_(now, this->operation_deadline_)) {
         this->fail_operation_("Panel did not show its state after wake-up");
       }
+      break;
+    }
+
+    case Operation::DIRECTION_WAKE_WAIT: {
+      const PanelSample sample = this->read_panel_sample_();
+      if (this->standby_wake_frame_(sample)) {
+        this->standby_wake_seen_ = true;
+        this->direction_wake_active_seen_ = false;
+      } else if (this->standby_wake_seen_) {
+        if (sample.led_mask == 0x00) {
+          this->fail_operation_("Direction changes require a non-zero fan speed");
+          break;
+        }
+      } else {
+        // A direction gesture needs fresh evidence of active ventilation, not
+        // an exact speed. Both a normal speed frame and an Intake marker show
+        // that the panel is active. Retain this command-local evidence across
+        // marker dark phases, but never publish a marker as a numeric speed.
+        if (speed_for_led_mask_(sample.led_mask) > 0 || sample.led_mask == 0x08)
+          this->direction_wake_active_seen_ = true;
+        if (this->direction_wake_active_seen_ &&
+            now - this->operation_action_started_at_ >= DIRECTION_WAKE_SETTLE_MS) {
+          this->prepare_direction_hold_(now);
+          break;
+        }
+      }
+      if (this->deadline_reached_(now, this->operation_deadline_))
+        this->fail_operation_("Panel did not show an active state after direction wake-up");
       break;
     }
 
@@ -1186,15 +1212,6 @@ void ComfoSpot::process_operation_() {
       }
       break;
     }
-
-    case Operation::MODE_HOLD_WAIT:
-      if (this->deadline_reached_(now, this->next_action_at_)) {
-        this->press_(this->operation_command_pin_);
-        this->operation_ = Operation::MODE_HOLD;
-        this->operation_action_started_at_ = now;
-        this->operation_deadline_ = now + CONTROL_LONG_PRESS_MS;
-      }
-      break;
 
     case Operation::MODE_HOLD:
       if (this->deadline_reached_(now, this->operation_deadline_)) {
