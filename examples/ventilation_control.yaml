@@ -6,7 +6,7 @@
 # Controls the configured ventilation direction select and fan percentage.
 # =============================================================================
 blueprint:
-  name: Ventilation Control (V / mode / level) v1.4.3
+  name: Ventilation Control (V / mode / level) v1.5.2
   description: >
     Calculates ventilation level V from humidity results,
     picks mode (Exchange/Intake/Exhaust) and final level. Falls back to
@@ -15,10 +15,37 @@ blueprint:
     to the indoor temperature before the score is calculated. Intake is not
     selected below 13 degrees C; the fan is limited to level 1 below -5
     degrees C and turned off below -12 degrees C. An optional second sensor can
-    raise the air-quality level using its own thresholds. An optional switch
-    can cap the fan level while it is on.
+    raise the air-quality level using its own thresholds. Humidity-derived fan
+    levels and both air-quality sensors use a +/-5% threshold hysteresis buffer
+    based on the current fan level. An optional switch can cap the fan level
+    while it is on. The execution frequency is configurable and defaults to
+    every 10 minutes.
   domain: automation
   input:
+    execution_frequency:
+      name: Execution frequency
+      description: >
+        How often to recalculate ventilation. Runs align with the clock; for
+        example, every 10 minutes runs at :00, :10, :20, :30, :40, and :50.
+      default: "/10"
+      selector:
+        select:
+          mode: dropdown
+          options:
+            - label: Every 2 minutes
+              value: "/2"
+            - label: Every 5 minutes
+              value: "/5"
+            - label: Every 10 minutes
+              value: "/10"
+            - label: Every 15 minutes
+              value: "/15"
+            - label: Every 20 minutes
+              value: "/20"
+            - label: Every 30 minutes
+              value: "/30"
+            - label: Every hour
+              value: "0"
     outdoor_temp:
       name: Outdoor temperature (T_O)
       selector:
@@ -78,12 +105,12 @@ blueprint:
         entity: { domain: sensor, device_class: carbon_dioxide }
     co2_limit_1:
       name: CO2 limit 1
-      default: 500
+      default: 600
       selector:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
     co2_limit_2:
       name: CO2 limit 2
-      default: 700
+      default: 800
       selector:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
     co2_limit_3:
@@ -93,7 +120,7 @@ blueprint:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
     co2_limit_4:
       name: CO2 limit 4
-      default: 1500
+      default: 1300
       selector:
         number: { min: 0, max: 5000, unit_of_measurement: ppm, mode: box }
     max_level_switch:
@@ -147,9 +174,9 @@ blueprint:
         number: { min: 0, max: 1000000, mode: box }
 
 triggers:
-  # Re-evaluate every 10 minutes (target humidity may be a plain number, so we
-  # don't rely on a state trigger from it).
-  - minutes: /10
+  # Re-evaluate at the configured frequency (target humidity may be a plain
+  # number, so we don't rely on a state trigger from it).
+  - minutes: !input execution_frequency
     trigger: time_pattern
 
 variables:
@@ -204,6 +231,8 @@ actions:
       rh_o_raw: "{{ states(rh_o_ent) | float(0) }}"
       rh_i_raw: "{{ states(rh_i_ent) | float(0) }}"
       co2: "{{ states(co2_ent) | float(0) }}"
+      # Expose the optional reading in traces, retaining none for invalid values.
+      second_sensor_value: "{{ states(second_sensor_ent) | float(none) }}"
 
       # ----- target humidity: same number-or-entity handling -----
       h_t_raw: >-
@@ -239,8 +268,23 @@ actions:
       # ----- raw level score -----
       # Divide the humidity score by the configured points-per-level value.
       v_raw: "{{ h_r|float / humidity_points_per_level|float }}"
-      # clamp v_raw into [0,4] then floor to an integer level
-      v: "{{ (0 if v_raw|float < 0 else (4 if v_raw|float > 4 else v_raw|float)) | int }}"
+
+      # ----- shared fan-level hysteresis for humidity and air quality -----
+      # An off fan is level 0 even if its percentage retains the previous speed.
+      current_fan_level: >-
+        {{ 0 if is_state(ventilation_fan_ent, 'off') else
+           ((state_attr(ventilation_fan_ent, 'percentage') | float(0)) / 25) }}
+      # Each boundary decreases at 95% when already reached, otherwise it
+      # increases at 105%. Keep v_raw unchanged for the negative-V multiplier.
+      level_threshold_multiplier_1: "{{ 0.95 if current_fan_level|float >= 1 else 1.05 }}"
+      level_threshold_multiplier_2: "{{ 0.95 if current_fan_level|float >= 2 else 1.05 }}"
+      level_threshold_multiplier_3: "{{ 0.95 if current_fan_level|float >= 3 else 1.05 }}"
+      level_threshold_multiplier_4: "{{ 0.95 if current_fan_level|float >= 4 else 1.05 }}"
+      v: >-
+        {% if v_raw|float < (1 * (level_threshold_multiplier_1|float)) %}0{% elif
+        v_raw|float < (2 * (level_threshold_multiplier_2|float)) %}1{% elif
+        v_raw|float < (3 * (level_threshold_multiplier_3|float)) %}2{% elif
+        v_raw|float < (4 * (level_threshold_multiplier_4|float)) %}3{% else %}4{% endif %}
 
       # ----- humidity state used to choose Exhaust vs Intake -----
       room_humidity_high: "{{ (h_i|float) > (h_t|float) }}"
@@ -256,6 +300,11 @@ actions:
       air_quality_threshold_multiplier: >-
         {{ (((-(v_raw|float)) * (negative_v_co2_multiplier|float)) + 1)
            if v_raw|float < 0 else 1 }}
+      # Apply the shared hysteresis after the negative-V threshold multiplier.
+      air_quality_multiplier_1: "{{ air_quality_threshold_multiplier|float * level_threshold_multiplier_1|float }}"
+      air_quality_multiplier_2: "{{ air_quality_threshold_multiplier|float * level_threshold_multiplier_2|float }}"
+      air_quality_multiplier_3: "{{ air_quality_threshold_multiplier|float * level_threshold_multiplier_3|float }}"
+      air_quality_multiplier_4: "{{ air_quality_threshold_multiplier|float * level_threshold_multiplier_4|float }}"
       second_sensor_thresholds_valid: >-
         {{ (s1 | string | trim != '') and
            (s2 | string | trim != '') and
@@ -266,19 +315,19 @@ actions:
            (s3 | float(none)) is not none and
            (s4 | float(none)) is not none }}
       co2_level: >-
-        {% if co2|float < (l1|float * (air_quality_threshold_multiplier|float)) %}0{% elif
-        co2|float < (l2|float * (air_quality_threshold_multiplier|float)) %}1{% elif
-        co2|float < (l3|float * (air_quality_threshold_multiplier|float)) %}2{% elif
-        co2|float < (l4|float * (air_quality_threshold_multiplier|float)) %}3{% else %}4{% endif %}
+        {% if co2|float < (l1|float * (air_quality_multiplier_1|float)) %}0{% elif
+        co2|float < (l2|float * (air_quality_multiplier_2|float)) %}1{% elif
+        co2|float < (l3|float * (air_quality_multiplier_3|float)) %}2{% elif
+        co2|float < (l4|float * (air_quality_multiplier_4|float)) %}3{% else %}4{% endif %}
       second_sensor_level: >-
         {% if not (second_sensor_thresholds_valid | bool) or
               (second_sensor_ent | string | trim == '') or
               not has_value(second_sensor_ent) or
-              (states(second_sensor_ent) | float(none)) is none %}0{% elif
-        states(second_sensor_ent)|float < (s1|float * (air_quality_threshold_multiplier|float)) %}0{% elif
-        states(second_sensor_ent)|float < (s2|float * (air_quality_threshold_multiplier|float)) %}1{% elif
-        states(second_sensor_ent)|float < (s3|float * (air_quality_threshold_multiplier|float)) %}2{% elif
-        states(second_sensor_ent)|float < (s4|float * (air_quality_threshold_multiplier|float)) %}3{% else %}4{% endif %}
+              second_sensor_value is none %}0{% elif
+        second_sensor_value|float < (s1|float * (air_quality_multiplier_1|float)) %}0{% elif
+        second_sensor_value|float < (s2|float * (air_quality_multiplier_2|float)) %}1{% elif
+        second_sensor_value|float < (s3|float * (air_quality_multiplier_3|float)) %}2{% elif
+        second_sensor_value|float < (s4|float * (air_quality_multiplier_4|float)) %}3{% else %}4{% endif %}
       air_quality_level: "{{ [co2_level|int, second_sensor_level|int] | max }}"
 
       # ----- final decision -----
