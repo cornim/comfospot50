@@ -36,7 +36,7 @@ class VentilationScheduleTests(unittest.TestCase):
 
     def test_frequency_options_produce_evenly_spaced_runs(self):
         options = BLUEPRINT["blueprint"]["input"]["execution_frequency"]["selector"]["select"]["options"]
-        expected_intervals = (1, 2, 5, 10, 15, 20, 30, 60)
+        expected_intervals = (2, 5, 10, 15, 20, 30, 60)
         self.assertEqual(len(options), len(expected_intervals))
         for option, interval in zip(options, expected_intervals):
             with self.subTest(option=option):
