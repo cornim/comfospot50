@@ -6,7 +6,7 @@
 # Controls the configured ventilation direction select and fan percentage.
 # =============================================================================
 blueprint:
-  name: Ventilation Control (V / mode / level) v1.4.8
+  name: Ventilation Control (V / mode / level) v1.5.2
   description: >
     Calculates ventilation level V from humidity results,
     picks mode (Exchange/Intake/Exhaust) and final level. Falls back to
