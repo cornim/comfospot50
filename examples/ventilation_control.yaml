@@ -6,7 +6,7 @@
 # Controls the configured ventilation direction select and fan percentage.
 # =============================================================================
 blueprint:
-  name: Ventilation Control (V / mode / level) v1.4.5
+  name: Ventilation Control (V / mode / level) v1.4.6
   description: >
     Calculates ventilation level V from humidity results,
     picks mode (Exchange/Intake/Exhaust) and final level. Falls back to
@@ -206,6 +206,8 @@ actions:
       rh_o_raw: "{{ states(rh_o_ent) | float(0) }}"
       rh_i_raw: "{{ states(rh_i_ent) | float(0) }}"
       co2: "{{ states(co2_ent) | float(0) }}"
+      # Expose the optional reading in traces, retaining none for invalid values.
+      second_sensor_value: "{{ states(second_sensor_ent) | float(none) }}"
 
       # ----- target humidity: same number-or-entity handling -----
       h_t_raw: >-
@@ -296,11 +298,11 @@ actions:
         {% if not (second_sensor_thresholds_valid | bool) or
               (second_sensor_ent | string | trim == '') or
               not has_value(second_sensor_ent) or
-              (states(second_sensor_ent) | float(none)) is none %}0{% elif
-        states(second_sensor_ent)|float < (s1|float * (air_quality_multiplier_1|float)) %}0{% elif
-        states(second_sensor_ent)|float < (s2|float * (air_quality_multiplier_2|float)) %}1{% elif
-        states(second_sensor_ent)|float < (s3|float * (air_quality_multiplier_3|float)) %}2{% elif
-        states(second_sensor_ent)|float < (s4|float * (air_quality_multiplier_4|float)) %}3{% else %}4{% endif %}
+              second_sensor_value is none %}0{% elif
+        second_sensor_value|float < (s1|float * (air_quality_multiplier_1|float)) %}0{% elif
+        second_sensor_value|float < (s2|float * (air_quality_multiplier_2|float)) %}1{% elif
+        second_sensor_value|float < (s3|float * (air_quality_multiplier_3|float)) %}2{% elif
+        second_sensor_value|float < (s4|float * (air_quality_multiplier_4|float)) %}3{% else %}4{% endif %}
       air_quality_level: "{{ [co2_level|int, second_sensor_level|int] | max }}"
 
       # ----- final decision -----

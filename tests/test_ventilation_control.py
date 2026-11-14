@@ -26,8 +26,8 @@ TEMPLATES = BLUEPRINT["actions"][0]["variables"]
 
 
 class VentilationHysteresisTests(unittest.TestCase):
-    def evaluate(self, current_level, raw_score=None, fan_off=False, co2=0, **overrides):
-        sensors = {"t_o": 20, "t_i": 20, "rh_o": 50, "rh_i": 70, "co2": co2, "second": 0}
+    def evaluate(self, current_level, raw_score=None, fan_off=False, co2=0, second=0, **overrides):
+        sensors = {"t_o": 20, "t_i": 20, "rh_o": 50, "rh_i": 70, "co2": co2, "second": second}
         context = {
             "t_o_ent": "t_o", "t_i_ent": "t_i", "rh_o_ent": "rh_o", "rh_i_ent": "rh_i",
             "co2_ent": "co2", "second_sensor_ent": "second", "ventilation_fan_ent": "fan",
@@ -41,7 +41,7 @@ class VentilationHysteresisTests(unittest.TestCase):
         env.globals.update(
             e=math.e, sqrt=math.sqrt,
             states=lambda entity: str(sensors.get(entity, "unknown")),
-            has_value=lambda entity: entity in sensors,
+            has_value=lambda entity: entity in sensors and sensors[entity] not in ("unknown", "unavailable"),
             is_state=lambda entity, state: entity == "fan" and state == "off" and fan_off,
             state_attr=lambda entity, attribute: current_level * 25,
         )
@@ -107,12 +107,35 @@ class VentilationHysteresisTests(unittest.TestCase):
                 multiplier = 0.95 if current >= boundary else 1.05
                 threshold = (600, 800, 1000, 1300)[boundary - 1] * multiplier
                 for value, expected in ((threshold - 0.001, boundary - 1), (threshold, boundary)):
-                    result = self.evaluate(current, 0, co2=value)
+                    result = self.evaluate(current, 0, co2=value, second=value)
                     self.assertEqual(result["co2_level"], expected)
-                    # The second sensor has identical limits; feed the same value
-                    # through its entity rather than duplicating threshold logic.
-                    result = self.evaluate(current, 0, second_sensor_ent="co2", co2=value)
+                    self.assertEqual(result["co2"], value)
+                    self.assertEqual(result["second_sensor_value"], value)
                     self.assertEqual(result["second_sensor_level"], expected)
+
+    def test_second_sensor_reading_visible_independently(self):
+        result = self.evaluate(0, 0, co2=500, second=900)
+        self.assertEqual(result["co2"], 500)
+        self.assertEqual(result["second_sensor_value"], 900)
+        self.assertEqual(result["co2_level"], 0)
+        self.assertEqual(result["second_sensor_level"], 2)
+        self.assertEqual(result["air_quality_level"], 2)
+
+    def test_invalid_second_sensor_readings_are_ignored(self):
+        for value in ("unknown", "unavailable", "not a number", ""):
+            with self.subTest(value=value):
+                result = self.evaluate(0, 0, co2=900, second=value)
+                self.assertIsNone(result["second_sensor_value"])
+                self.assertEqual(result["second_sensor_level"], 0)
+                self.assertEqual(result["air_quality_level"], result["co2_level"])
+
+    def test_unconfigured_second_sensor_is_ignored(self):
+        for overrides in ({"second_sensor_ent": ""}, {"second_sensor_ent": "missing"},
+                          {"s1": ""}, {"s2": "invalid"}):
+            with self.subTest(overrides=overrides):
+                result = self.evaluate(0, 0, co2=900, second=2000, **overrides)
+                self.assertEqual(result["second_sensor_level"], 0)
+                self.assertEqual(result["air_quality_level"], result["co2_level"])
 
 
 if __name__ == "__main__":
