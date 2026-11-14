@@ -6,7 +6,7 @@
 # Controls the configured ventilation direction select and fan percentage.
 # =============================================================================
 blueprint:
-  name: Ventilation Control (V / mode / level) v1.4.6
+  name: Ventilation Control (V / mode / level) v1.4.7
   description: >
     Calculates ventilation level V from humidity results,
     picks mode (Exchange/Intake/Exhaust) and final level. Falls back to
@@ -18,9 +18,36 @@ blueprint:
     raise the air-quality level using its own thresholds. Humidity-derived fan
     levels and both air-quality sensors use a +/-5% threshold hysteresis buffer
     based on the current fan level. An optional switch can cap the fan level
-    while it is on.
+    while it is on. The execution frequency is configurable and defaults to
+    every 10 minutes.
   domain: automation
   input:
+    execution_frequency:
+      name: Execution frequency
+      description: >
+        How often to recalculate ventilation. Runs align with the clock; for
+        example, every 10 minutes runs at :00, :10, :20, :30, :40, and :50.
+      default: "/10"
+      selector:
+        select:
+          mode: dropdown
+          options:
+            - label: Every minute
+              value: "/1"
+            - label: Every 2 minutes
+              value: "/2"
+            - label: Every 5 minutes
+              value: "/5"
+            - label: Every 10 minutes
+              value: "/10"
+            - label: Every 15 minutes
+              value: "/15"
+            - label: Every 20 minutes
+              value: "/20"
+            - label: Every 30 minutes
+              value: "/30"
+            - label: Every hour
+              value: "0"
     outdoor_temp:
       name: Outdoor temperature (T_O)
       selector:
@@ -149,9 +176,9 @@ blueprint:
         number: { min: 0, max: 1000000, mode: box }
 
 triggers:
-  # Re-evaluate every 10 minutes (target humidity may be a plain number, so we
-  # don't rely on a state trigger from it).
-  - minutes: /10
+  # Re-evaluate at the configured frequency (target humidity may be a plain
+  # number, so we don't rely on a state trigger from it).
+  - minutes: !input execution_frequency
     trigger: time_pattern
 
 variables:

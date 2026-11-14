@@ -25,6 +25,31 @@ BLUEPRINT = yaml.load(
 TEMPLATES = BLUEPRINT["actions"][0]["variables"]
 
 
+class VentilationScheduleTests(unittest.TestCase):
+    def test_default_execution_frequency(self):
+        frequency = BLUEPRINT["blueprint"]["input"]["execution_frequency"]
+        self.assertEqual(frequency["default"], "/10")
+        self.assertIn(frequency["default"], [option["value"] for option in
+                                           frequency["selector"]["select"]["options"]])
+        self.assertEqual(BLUEPRINT["triggers"],
+                         [{"minutes": "execution_frequency", "trigger": "time_pattern"}])
+
+    def test_frequency_options_produce_evenly_spaced_runs(self):
+        options = BLUEPRINT["blueprint"]["input"]["execution_frequency"]["selector"]["select"]["options"]
+        expected_intervals = (1, 2, 5, 10, 15, 20, 30, 60)
+        self.assertEqual(len(options), len(expected_intervals))
+        for option, interval in zip(options, expected_intervals):
+            with self.subTest(option=option):
+                pattern = option["value"]
+                self.assertIsInstance(pattern, str)
+                # Home Assistant time patterns match minutes within each hour.
+                matching_minutes = [minute for minute in range(60)
+                                    if (minute % int(pattern[1:]) == 0 if pattern.startswith("/")
+                                        else minute == int(pattern))]
+                runs = [hour * 60 + minute for hour in range(3) for minute in matching_minutes]
+                self.assertEqual(runs, list(range(0, 180, interval)))
+
+
 class VentilationHysteresisTests(unittest.TestCase):
     def evaluate(self, current_level, raw_score=None, fan_off=False, co2=0, second=0, **overrides):
         sensors = {"t_o": 20, "t_i": 20, "rh_o": 50, "rh_i": 70, "co2": co2, "second": second}
